@@ -1,15 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Panel, Btn, inputClass } from "@/components/ui";
+import { Panel, Btn, IconBtn, IconEdit, IconTrash, Modal, Field, inputClass } from "@/components/ui";
 import { ROLES, roleLabel } from "@/lib/roles";
-import { PRIORITY_INFO } from "@/lib/constants";
 
 const TABS = [
   { key: "departments", label: "Departments" },
-  { key: "locations", label: "Locations" },
   { key: "natures", label: "Job Nature" },
-  { key: "priority", label: "Priority" },
   { key: "users", label: "Users" },
 ];
 
@@ -26,12 +23,15 @@ function Switch({ on, onClick }) {
   );
 }
 
-function MasterList({ endpoint, extraRender, withDeptFlags }) {
+function MasterList({ endpoint, extraRender, withDeptFlags, deletable }) {
   const [rows, setRows] = useState(null);
   const [newName, setNewName] = useState("");
   const [usedFor, setUsedFor] = useState("both");
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState("");
+  const [editFlags, setEditFlags] = useState({ notif: true, work: true });
+  const [removingId, setRemovingId] = useState(null);
+  const [removeError, setRemoveError] = useState("");
 
   const listKey = endpoint;
   async function load() {
@@ -59,15 +59,37 @@ function MasterList({ endpoint, extraRender, withDeptFlags }) {
     });
     load();
   }
-  async function saveRename(row) {
+  function startEdit(row) {
+    setEditingId(row.id);
+    setEditName(row.name);
+    setEditFlags({ notif: row.notif ?? true, work: row.work ?? true });
+  }
+  async function saveEdit(row) {
     if (!editName.trim()) return;
+    const patch = { id: row.id, name: editName.trim() };
+    if (withDeptFlags) Object.assign(patch, editFlags);
     await fetch(`/api/${endpoint}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: row.id, name: editName.trim() }),
+      body: JSON.stringify(patch),
     });
     setEditingId(null);
     load();
+  }
+  async function remove(row) {
+    setRemoveError("");
+    const res = await fetch(`/api/${endpoint}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: row.id }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setRemovingId(null);
+      load();
+    } else {
+      setRemoveError(data.error || "Could not remove.");
+    }
   }
 
   return (
@@ -88,21 +110,51 @@ function MasterList({ endpoint, extraRender, withDeptFlags }) {
       ) : (
         <div className="divide-y divide-slate-100">
           {rows.map((row) => (
-            <div key={row.id} className="flex items-center gap-3 px-4 py-2.5">
+            <div key={row.id} className="px-4 py-2.5">
               {editingId === row.id ? (
-                <>
+                <div className="flex flex-wrap items-center gap-3">
                   <input className={`${inputClass} max-w-xs`} value={editName} onChange={(e) => setEditName(e.target.value)} autoFocus />
-                  <Btn variant="primary" onClick={() => saveRename(row)}>Save</Btn>
+                  {withDeptFlags && (
+                    <>
+                      <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                        <input type="checkbox" checked={editFlags.notif} onChange={(e) => setEditFlags((f) => ({ ...f, notif: e.target.checked }))} /> Notifications
+                      </label>
+                      <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                        <input type="checkbox" checked={editFlags.work} onChange={(e) => setEditFlags((f) => ({ ...f, work: e.target.checked }))} /> Work orders
+                      </label>
+                    </>
+                  )}
+                  <span className="flex-1" />
+                  <Btn variant="primary" onClick={() => saveEdit(row)}>Save</Btn>
                   <Btn onClick={() => setEditingId(null)}>Cancel</Btn>
-                </>
+                </div>
+              ) : removingId === row.id ? (
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="text-sm text-slate-700">Remove <strong>{row.name}</strong>?</span>
+                  {removeError && <span className="text-xs text-red-600">{removeError}</span>}
+                  <span className="flex-1" />
+                  <Btn onClick={() => { setRemovingId(null); setRemoveError(""); }}>Cancel</Btn>
+                  <Btn variant="danger" onClick={() => remove(row)}>Remove</Btn>
+                </div>
               ) : (
-                <>
+                <div className="flex items-center gap-3">
                   <span className={`text-sm font-medium ${row.active ? "text-slate-800" : "text-slate-400 line-through"}`}>{row.name}</span>
                   {extraRender && extraRender(row)}
                   <span className="flex-1" />
-                  <Btn onClick={() => { setEditingId(row.id); setEditName(row.name); }}>Rename</Btn>
+                  {deletable && row.inUse > 0 && <span className="text-[11px] text-slate-400">used by {row.inUse}</span>}
+                  <IconBtn title="Edit" onClick={() => startEdit(row)}><IconEdit /></IconBtn>
+                  {deletable && (
+                    <IconBtn
+                      title={row.inUse > 0 ? `In use by ${row.inUse} record${row.inUse === 1 ? "" : "s"} — deactivate instead of removing` : "Remove"}
+                      variant="danger"
+                      disabled={row.inUse > 0}
+                      onClick={() => { setRemovingId(row.id); setRemoveError(""); }}
+                    >
+                      <IconTrash />
+                    </IconBtn>
+                  )}
                   <Switch on={row.active} onClick={() => toggle(row)} />
-                </>
+                </div>
               )}
             </div>
           ))}
@@ -112,10 +164,14 @@ function MasterList({ endpoint, extraRender, withDeptFlags }) {
   );
 }
 
-function UsersTab() {
+function UsersTab({ me }) {
   const [rows, setRows] = useState(null);
   const [form, setForm] = useState({ name: "", username: "", password: "", dept: "", designation: "", role: ROLES.DEPT, email: "", mobile: "" });
   const [error, setError] = useState("");
+  const [editing, setEditing] = useState(null);
+  const [editError, setEditError] = useState("");
+  const [removingId, setRemovingId] = useState(null);
+  const [removeError, setRemoveError] = useState("");
 
   async function load() {
     const res = await fetch("/api/users");
@@ -150,6 +206,27 @@ function UsersTab() {
     }
   }
 
+  async function saveEdit() {
+    setEditError("");
+    const res = await fetch(`/api/users/${editing.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        role: editing.role, dept: editing.dept, designation: editing.designation,
+        email: editing.email, mobile: editing.mobile,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) { setEditing(null); load(); } else { setEditError(data.error || "Could not save changes."); }
+  }
+
+  async function remove(u) {
+    setRemoveError("");
+    const res = await fetch(`/api/users/${u.id}`, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) { setRemovingId(null); load(); } else { setRemoveError(data.error || "Could not remove user."); }
+  }
+
   return (
     <div>
       <form onSubmit={addUser} className="p-4 grid grid-cols-1 sm:grid-cols-3 gap-3 border-b border-slate-200">
@@ -176,22 +253,60 @@ function UsersTab() {
             <thead>
               <tr className="text-left text-xs uppercase tracking-wide text-slate-500 bg-slate-50">
                 <th className="px-4 py-2.5">Name</th><th className="px-4 py-2.5">Username</th><th className="px-4 py-2.5">Dept</th>
-                <th className="px-4 py-2.5">Role</th><th className="px-4 py-2.5">Status</th>
+                <th className="px-4 py-2.5">Role</th><th className="px-4 py-2.5">Status</th><th className="px-4 py-2.5"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {rows.map((u) => (
-                <tr key={u.id}>
-                  <td className="px-4 py-2.5 font-medium">{u.name}</td>
-                  <td className="px-4 py-2.5 font-mono text-xs">{u.username}</td>
-                  <td className="px-4 py-2.5">{u.dept}</td>
-                  <td className="px-4 py-2.5">{roleLabel(u.role)}</td>
-                  <td className="px-4 py-2.5"><Switch on={u.active} onClick={() => toggle(u)} /></td>
-                </tr>
-              ))}
+              {rows.map((u) => {
+                const isSelf = u.username === me?.username;
+                return (
+                  <tr key={u.id}>
+                    <td className="px-4 py-2.5 font-medium">{u.name}{isSelf && <span className="ml-1.5 text-[10px] text-sky-600 font-semibold">(you)</span>}</td>
+                    <td className="px-4 py-2.5 font-mono text-xs">{u.username}</td>
+                    <td className="px-4 py-2.5">{u.dept}</td>
+                    <td className="px-4 py-2.5">{roleLabel(u.role)}</td>
+                    <td className="px-4 py-2.5"><Switch on={u.active} onClick={() => toggle(u)} /></td>
+                    <td className="px-4 py-2.5">
+                      {removingId === u.id ? (
+                        <div className="flex items-center gap-2 justify-end">
+                          {removeError && <span className="text-xs text-red-600">{removeError}</span>}
+                          <Btn onClick={() => { setRemovingId(null); setRemoveError(""); }}>Cancel</Btn>
+                          <Btn variant="danger" onClick={() => remove(u)}>Remove</Btn>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 justify-end">
+                          <IconBtn title="Edit" onClick={() => { setEditing({ ...u }); setEditError(""); }}><IconEdit /></IconBtn>
+                          <IconBtn title={isSelf ? "You can't remove your own account" : "Remove"} variant="danger" disabled={isSelf} onClick={() => { setRemovingId(u.id); setRemoveError(""); }}><IconTrash /></IconBtn>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
+      )}
+
+      {editing && (
+        <Modal title={`Edit ${editing.name}`} onClose={() => setEditing(null)}>
+          <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="Department"><input className={inputClass} value={editing.dept} onChange={(e) => setEditing({ ...editing, dept: e.target.value })} /></Field>
+            <Field label="Designation"><input className={inputClass} value={editing.designation} onChange={(e) => setEditing({ ...editing, designation: e.target.value })} /></Field>
+            <Field label="Role">
+              <select className={inputClass} value={editing.role} onChange={(e) => setEditing({ ...editing, role: e.target.value })}>
+                {Object.values(ROLES).map((r) => (<option key={r} value={r}>{roleLabel(r)}</option>))}
+              </select>
+            </Field>
+            <Field label="Email"><input className={inputClass} value={editing.email || ""} onChange={(e) => setEditing({ ...editing, email: e.target.value })} /></Field>
+            <Field label="Mobile" wide><input className={inputClass} value={editing.mobile || ""} onChange={(e) => setEditing({ ...editing, mobile: e.target.value })} /></Field>
+          </div>
+          {editError && <p className="px-4 text-sm text-red-600">{editError}</p>}
+          <div className="flex justify-end gap-2 px-4 py-3 border-t border-slate-200">
+            <Btn onClick={() => setEditing(null)}>Cancel</Btn>
+            <Btn variant="primary" onClick={saveEdit}>Save changes</Btn>
+          </div>
+        </Modal>
       )}
     </div>
   );
@@ -199,6 +314,11 @@ function UsersTab() {
 
 export default function SettingsPage() {
   const [tab, setTab] = useState("departments");
+  const [me, setMe] = useState(null);
+
+  useEffect(() => {
+    fetch("/api/me").then((r) => (r.ok ? r.json() : null)).then((d) => d && setMe(d.user)).catch(() => {});
+  }, []);
 
   return (
     <div className="space-y-4">
@@ -220,6 +340,7 @@ export default function SettingsPage() {
           <MasterList
             endpoint="departments"
             withDeptFlags
+            deletable
             extraRender={(d) => (
               <span className="flex gap-1">
                 {d.notif && <span className="text-[10px] font-semibold bg-blue-50 text-blue-600 rounded-full px-2 py-0.5">Notification</span>}
@@ -228,21 +349,8 @@ export default function SettingsPage() {
             )}
           />
         )}
-        {tab === "locations" && <MasterList endpoint="locations" />}
         {tab === "natures" && <MasterList endpoint="natures" />}
-        {tab === "priority" && (
-          <div className="divide-y divide-slate-100">
-            {Object.entries(PRIORITY_INFO).map(([p, info]) => (
-              <div key={p} className="flex items-center gap-3 px-4 py-3">
-                <span className="text-sm font-semibold" style={{ color: info.color }}>{p}</span>
-                <span className="flex-1" />
-                <span className="text-xs text-slate-500">{info.note}</span>
-              </div>
-            ))}
-            <p className="px-4 py-3 text-xs text-slate-500">Priority drives escalation colour and the attention list, so the four levels stay fixed.</p>
-          </div>
-        )}
-        {tab === "users" && <UsersTab />}
+        {tab === "users" && <UsersTab me={me} />}
       </Panel>
     </div>
   );

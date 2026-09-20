@@ -2,7 +2,7 @@
 // server process (a warm serverless instance, or `next dev`/`next start`) —
 // writes are not persisted across restarts, exactly like the sibling
 // PowerHouse MIS project's own UI-only mode.
-import { DEPARTMENTS, LOCATIONS, NATURES, USERS, NT_SEED, WO_SEED, engineerOf } from "@/lib/seedData";
+import { DEPARTMENTS, NATURES, USERS, NT_SEED, WO_SEED, engineerOf } from "@/lib/seedData";
 import { hashPassword } from "@/lib/session";
 
 let DB = null;
@@ -66,9 +66,8 @@ async function build() {
   }
 
   return {
-    seq: { nt: 412, wo: 458, user: users.length, dept: DEPARTMENTS.length, loc: LOCATIONS.length, nat: NATURES.length },
+    seq: { nt: 412, wo: 458, user: users.length, dept: DEPARTMENTS.length, nat: NATURES.length },
     departments: DEPARTMENTS.map((d, i) => ({ id: i + 1, ...d })),
-    locations: LOCATIONS.map((l, i) => ({ id: i + 1, ...l })),
     natures: NATURES.map((n, i) => ({ id: i + 1, ...n })),
     users,
     notifications,

@@ -11,10 +11,22 @@ function nowISO() {
   return new Date().toISOString().slice(0, 16).replace("T", " ");
 }
 
-// ── Departments / Locations / Job Natures (simple master lists) ───────────
+// ── Departments / Job Natures (simple master lists) ────────────────────────
 export async function listDepartments() {
-  if (isUiOnlyMode()) return (await getDB()).departments;
-  return prisma.department.findMany({ orderBy: { name: "asc" } });
+  if (isUiOnlyMode()) {
+    const db = await getDB();
+    return db.departments.map((d) => ({
+      ...d,
+      inUse: db.notifications.filter((n) => n.dept === d.name).length + db.workOrders.filter((w) => w.dept === d.name).length,
+    }));
+  }
+  const departments = await prisma.department.findMany({ orderBy: { name: "asc" } });
+  const counts = await Promise.all(
+    departments.map((d) =>
+      Promise.all([prisma.notification.count({ where: { dept: d.name } }), prisma.workOrder.count({ where: { dept: d.name } })])
+    )
+  );
+  return departments.map((d, i) => ({ ...d, inUse: counts[i][0] + counts[i][1] }));
 }
 export async function addDepartment({ name, notif = true, work = true }) {
   if (isUiOnlyMode()) {
@@ -35,29 +47,15 @@ export async function updateDepartment(id, patch) {
   }
   return prisma.department.update({ where: { id: Number(id) }, data: patch });
 }
-
-export async function listLocations() {
-  if (isUiOnlyMode()) return (await getDB()).locations;
-  return prisma.location.findMany({ orderBy: { name: "asc" } });
-}
-export async function addLocation({ name }) {
+export async function deleteDepartment(id) {
   if (isUiOnlyMode()) {
     const db = await getDB();
-    const row = { id: ++db.seq.loc, name, active: true };
-    db.locations.push(row);
-    return row;
+    const idx = db.departments.findIndex((d) => d.id === Number(id));
+    if (idx === -1) throw new Error("Not found");
+    db.departments.splice(idx, 1);
+    return;
   }
-  return prisma.location.create({ data: { name } });
-}
-export async function updateLocation(id, patch) {
-  if (isUiOnlyMode()) {
-    const db = await getDB();
-    const row = db.locations.find((l) => l.id === Number(id));
-    if (!row) throw new Error("Not found");
-    Object.assign(row, patch);
-    return row;
-  }
-  return prisma.location.update({ where: { id: Number(id) }, data: patch });
+  await prisma.department.delete({ where: { id: Number(id) } });
 }
 
 export async function listNatures() {
@@ -133,6 +131,16 @@ export async function updateUser(id, patch) {
   }
   const row = await prisma.user.update({ where: { id: Number(id) }, data: patch });
   return publicUser(row);
+}
+export async function deleteUser(id) {
+  if (isUiOnlyMode()) {
+    const db = await getDB();
+    const idx = db.users.findIndex((u) => u.id === Number(id));
+    if (idx === -1) throw new Error("Not found");
+    db.users.splice(idx, 1);
+    return;
+  }
+  await prisma.user.delete({ where: { id: Number(id) } });
 }
 
 // ── Notifications ───────────────────────────────────────────────────────
@@ -221,6 +229,35 @@ export async function setNotificationStatus(no, status, who) {
   const history = [...(n.history || []), { at: nowISO(), who, text: label }];
   const updated = await prisma.notification.update({ where: { no }, data: { status, history } });
   return normNotif(updated, null);
+}
+
+// patch is restricted by the API route to { job, priority } — a notification's
+// dept/location/nature are fixed at raise time, same as before this existed.
+export async function updateNotification(no, patch, who) {
+  if (isUiOnlyMode()) {
+    const db = await getDB();
+    const n = db.notifications.find((x) => x.no === no);
+    if (!n) throw new Error("Not found");
+    Object.assign(n, patch);
+    pushHistory(n, who, "Notification edited.");
+    return normNotif(n, db.users);
+  }
+  const n = await prisma.notification.findUnique({ where: { no } });
+  if (!n) throw new Error("Not found");
+  const history = [...(n.history || []), { at: nowISO(), who, text: "Notification edited." }];
+  const updated = await prisma.notification.update({ where: { no }, data: { ...patch, history } });
+  return normNotif(updated, null);
+}
+
+export async function deleteNotification(no) {
+  if (isUiOnlyMode()) {
+    const db = await getDB();
+    const idx = db.notifications.findIndex((x) => x.no === no);
+    if (idx === -1) throw new Error("Not found");
+    db.notifications.splice(idx, 1);
+    return;
+  }
+  await prisma.notification.delete({ where: { no } });
 }
 
 // ── Work Orders ─────────────────────────────────────────────────────────
@@ -452,6 +489,54 @@ export async function cancelWorkOrder(no, who) {
     data: { status: "Accepted", history: withHistory(before.notification.history, who, `Work order ${no} cancelled — notification returned to accepted.`) },
   });
   return updated;
+}
+
+// patch is restricted by the API route to { job, priority, assignedToName } —
+// a direct correction, separate from the assign/start/hold/.../close lifecycle above.
+export async function editWorkOrder(no, patch, who) {
+  const text = "Work order edited.";
+  if (isUiOnlyMode()) {
+    const { db, w } = await getWOMock(no);
+    if (patch.job !== undefined) w.job = patch.job;
+    if (patch.priority !== undefined) w.priority = patch.priority;
+    if (patch.assignedToName !== undefined) {
+      w.assignedToName = patch.assignedToName || null;
+      w.assignedToId = patch.assignedToName ? (db.users.find((u) => u.name === patch.assignedToName)?.id ?? null) : null;
+    }
+    w.history = withHistory(w.history, who, text);
+    return finishMock(w, db);
+  }
+  const before = await prisma.workOrder.findUnique({ where: { no } });
+  if (!before) throw new Error("Not found");
+  const data = { history: withHistory(before.history, who, text) };
+  if (patch.job !== undefined) data.job = patch.job;
+  if (patch.priority !== undefined) data.priority = patch.priority;
+  if (patch.assignedToName !== undefined) {
+    const assignedUser = patch.assignedToName ? await prisma.user.findFirst({ where: { name: patch.assignedToName } }) : null;
+    data.assignedToId = assignedUser?.id ?? null;
+  }
+  const { updated } = await finishPrisma(no, data);
+  return patch.assignedToName !== undefined ? { ...updated, assignedToName: patch.assignedToName || null } : updated;
+}
+
+export async function deleteWorkOrder(no, who) {
+  if (isUiOnlyMode()) {
+    const db = await getDB();
+    const idx = db.workOrders.findIndex((x) => x.no === no);
+    if (idx === -1) throw new Error("Not found");
+    const w = db.workOrders[idx];
+    db.workOrders.splice(idx, 1);
+    const n = db.notifications.find((x) => x.no === w.notificationNo);
+    if (n) { n.workOrderNo = null; n.status = "Accepted"; n.history = withHistory(n.history, who, `Work order ${no} removed — notification returned to accepted.`); }
+    return;
+  }
+  const before = await prisma.workOrder.findUnique({ where: { no }, include: { notification: true } });
+  if (!before) throw new Error("Not found");
+  await prisma.workOrder.delete({ where: { no } });
+  await prisma.notification.update({
+    where: { id: before.notificationId },
+    data: { status: "Accepted", history: withHistory(before.notification.history, who, `Work order ${no} removed — notification returned to accepted.`) },
+  });
 }
 
 // ── Dashboard aggregation ───────────────────────────────────────────────

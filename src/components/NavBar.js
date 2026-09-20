@@ -53,7 +53,9 @@ export default function NavBar() {
     <header className="sticky top-0 z-40 bg-slate-900 text-white" ref={menuRef}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-6">
         <span className="flex items-center gap-2 whitespace-nowrap">
-          <span className="h-7 w-7 rounded bg-sky-500 flex items-center justify-center text-xs font-bold">EJT</span>
+          <span className="h-8 w-8 rounded bg-white flex items-center justify-center overflow-hidden p-0.5">
+            <img src="/zyn-logo.png" alt="ZYN Mills" className="h-full w-full object-contain" />
+          </span>
           <span className="font-semibold tracking-tight">
             ZYN ENGINEERING <span className="text-sky-400">JOB TRACKER</span>
           </span>

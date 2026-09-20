@@ -34,8 +34,8 @@ function LoginForm() {
   return (
     <div className="min-h-[70vh] flex items-center justify-center">
       <form onSubmit={submit} className="w-full max-w-sm bg-white rounded-xl shadow-sm border border-slate-200 p-8">
-        <div className="h-12 w-12 rounded-xl bg-slate-900 text-sky-400 mx-auto mb-4 flex items-center justify-center font-bold text-sm">
-          EJT
+        <div className="h-14 w-14 rounded-xl bg-white border border-slate-200 mx-auto mb-4 flex items-center justify-center overflow-hidden p-1.5">
+          <img src="/zyn-logo.png" alt="ZYN Mills" className="h-full w-full object-contain" />
         </div>
         <h1 className="text-xl font-semibold text-slate-900 text-center">ZYN Engineering Job Tracker</h1>
         <p className="text-sm text-slate-500 mt-1 mb-6 text-center">Sign in with your account.</p>

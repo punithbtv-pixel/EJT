@@ -3,7 +3,7 @@
 // Run with: npm run db:seed
 import { PrismaClient } from "@prisma/client";
 import crypto from "node:crypto";
-import { DEPARTMENTS, LOCATIONS, NATURES, USERS, NT_SEED, WO_SEED, DEFAULT_PASSWORD, engineerOf } from "../src/lib/seedData.js";
+import { DEPARTMENTS, NATURES, USERS, NT_SEED, WO_SEED, DEFAULT_PASSWORD, engineerOf } from "../src/lib/seedData.js";
 
 const prisma = new PrismaClient();
 
@@ -22,12 +22,9 @@ function splitDT(s) {
 }
 
 async function main() {
-  console.log("Seeding departments, locations, job natures…");
+  console.log("Seeding departments, job natures…");
   for (const d of DEPARTMENTS) {
     await prisma.department.upsert({ where: { name: d.name }, update: {}, create: d });
-  }
-  for (const l of LOCATIONS) {
-    await prisma.location.upsert({ where: { name: l.name }, update: {}, create: l });
   }
   for (const n of NATURES) {
     await prisma.jobNature.upsert({ where: { name: n.name }, update: {}, create: n });

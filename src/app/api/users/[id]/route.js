@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/apiAuth";
 import { ROLES } from "@/lib/roles";
-import { updateUser } from "@/lib/store";
+import { updateUser, deleteUser, findUserByUsername } from "@/lib/store";
 import { isUiOnlyMode } from "@/lib/mode";
 
 // PATCH /api/users/[id] -> toggle active / edit a user account. Admin only.
@@ -28,5 +28,31 @@ export async function PATCH(request, { params }) {
   } catch (e) {
     console.error("PATCH /api/users/[id] failed:", e);
     return NextResponse.json({ error: "Could not update user" }, { status: 500 });
+  }
+}
+
+// DELETE /api/users/[id] -> remove a user account. Admin only, and never yourself.
+export async function DELETE(request, { params }) {
+  const auth = await requireSession(ROLES.ADMIN);
+  if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  if (isUiOnlyMode()) {
+    return NextResponse.json({ error: "User management is not available in demo mode" }, { status: 400 });
+  }
+
+  const { id } = await params;
+  const me = await findUserByUsername(auth.session.username);
+  if (me && me.id === Number(id)) {
+    return NextResponse.json({ error: "You can't remove your own account" }, { status: 400 });
+  }
+
+  try {
+    await deleteUser(id);
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    if (e.code === "P2003" || e.code === "P2014") {
+      return NextResponse.json({ error: "Can't remove — this user has raised notifications or been assigned work orders. Deactivate instead." }, { status: 400 });
+    }
+    console.error("DELETE /api/users/[id] failed:", e);
+    return NextResponse.json({ error: "Could not remove user" }, { status: 500 });
   }
 }

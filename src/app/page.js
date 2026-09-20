@@ -6,8 +6,80 @@ import Link from "next/link";
 import { Panel, EmptyState, StatusPill } from "@/components/ui";
 import { fmtD, fmtDT } from "@/lib/format";
 import { WO_OPEN, WO_STATUSES, WO_STATUS_COLOR } from "@/lib/constants";
+import { parseLocationPath } from "@/lib/locationTree";
 
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function locationChildren(paths, crumbs) {
+  const groups = new Map();
+  for (const p of paths) {
+    if (p.length <= crumbs.length) continue;
+    if (!crumbs.every((c, i) => p[i] === c)) continue;
+    const key = p[crumbs.length];
+    const g = groups.get(key) || { key, count: 0, hasMore: false };
+    g.count += 1;
+    if (p.length > crumbs.length + 1) g.hasMore = true;
+    groups.set(key, g);
+  }
+  return [...groups.values()].sort((a, b) => b.count - a.count);
+}
+function locationLevelLabel(crumbs, entries) {
+  if (crumbs.length === 0) return "Plant";
+  if (crumbs.length === 1) return "Main section";
+  if (crumbs.length === 2) return entries.some((e) => e.hasMore) ? "Sub-section" : "Equipment / Location";
+  return "Equipment / Location";
+}
+
+function JobsByLocation({ workOrders }) {
+  const [crumbs, setCrumbs] = useState([]);
+  const paths = useMemo(
+    () => workOrders.filter((w) => ["Completed", "Closed"].includes(w.status)).map((w) => parseLocationPath(w.location)).filter((p) => p.length > 0),
+    [workOrders]
+  );
+  const entries = useMemo(() => locationChildren(paths, crumbs), [paths, crumbs]);
+  const total = entries.reduce((s, e) => s + e.count, 0);
+  const max = entries.length ? entries[0].count : 1;
+  const title = locationLevelLabel(crumbs, entries);
+
+  return (
+    <Panel title="Jobs done by location" sub="Completed & closed work orders, grouped by Plant → Main Section → Sub-Section → Equipment / Location">
+      <div className="p-4 space-y-3">
+        <div className="flex items-center gap-1.5 text-xs flex-wrap">
+          <button onClick={() => setCrumbs([])} className={`px-2 py-1 rounded-md font-medium ${crumbs.length === 0 ? "bg-slate-900 text-white" : "text-sky-600 hover:underline"}`}>All plants</button>
+          {crumbs.map((c, i) => (
+            <span key={i} className="flex items-center gap-1.5">
+              <span className="text-slate-300">/</span>
+              <button onClick={() => setCrumbs(crumbs.slice(0, i + 1))} className={`px-2 py-1 rounded-md font-medium ${i === crumbs.length - 1 ? "bg-slate-900 text-white" : "text-sky-600 hover:underline"}`}>{c}</button>
+            </span>
+          ))}
+        </div>
+        <p className="text-xs text-slate-500">{title} · {total} job{total === 1 ? "" : "s"} done{crumbs.length ? ` in ${crumbs[crumbs.length - 1]}` : ""}</p>
+
+        {entries.length === 0 ? (
+          <EmptyState title="No completed work orders here" />
+        ) : (
+          <div className="space-y-2.5">
+            {entries.map((e) => (
+              <button
+                key={e.key}
+                onClick={() => e.hasMore && setCrumbs([...crumbs, e.key])}
+                title={e.key}
+                className={`w-full flex items-center gap-3 group text-left ${e.hasMore ? "cursor-pointer" : "cursor-default"}`}
+              >
+                <span className="w-40 sm:w-52 shrink-0 text-sm text-slate-700 truncate group-hover:text-slate-900">{e.key}</span>
+                <span className="flex-1 h-3 rounded-full bg-slate-100 overflow-hidden">
+                  <span className="block h-full rounded-full bg-sky-600" style={{ width: `${Math.max(4, (e.count / max) * 100)}%` }} />
+                </span>
+                <span className="text-sm font-medium text-slate-700 w-6 text-right">{e.count}</span>
+                <span className={`w-3 text-slate-300 ${e.hasMore ? "group-hover:text-slate-500" : "opacity-0"}`}>&rsaquo;</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </Panel>
+  );
+}
 
 function Kpi({ label, value, note, color }) {
   return (
@@ -126,6 +198,8 @@ export default function DashboardPage() {
           </div>
         </Panel>
       </div>
+
+      <JobsByLocation workOrders={data.workOrders} />
 
       <Panel title="Needs attention" sub={`${stats.attention.length} item${stats.attention.length === 1 ? "" : "s"}`}>
         {stats.attention.length ? (
