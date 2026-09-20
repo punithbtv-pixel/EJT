@@ -37,11 +37,13 @@ const ROLE_OF_DESIGNATION = {
   "Engineering Supervisor": ROLES.ENGINEER,
   "Department Supervisor": ROLES.DEPT,
   "Engineer/Technician": ROLES.TECH,
+  Management: ROLES.MANAGEMENT,
 };
 
 // [name, emp, dept, designation, email, mobile, active]
 const USER_ROWS = [
   ["Suresh Menon", "EMP-1001", "Admin", "Administrator", "suresh.menon@zynelectrical.co.in", "+91 98450 11021", true],
+  ["Management", "EMP-1002", "Management", "Management", "", "", true],
   ["Anil Deshpande", "EMP-1012", "Mechanical", "Engineering Supervisor", "anil.d@zynelectrical.co.in", "+91 98450 11034", true],
   ["Farid Qureshi", "EMP-1015", "Electrical", "Engineering Supervisor", "farid.q@zynelectrical.co.in", "+91 98450 11038", true],
   ["Ravi Kulkarni", "EMP-1103", "Milling", "Department Supervisor", "ravi.k@zynelectrical.co.in", "+91 98450 11102", true],

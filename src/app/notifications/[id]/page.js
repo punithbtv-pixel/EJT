@@ -3,8 +3,9 @@
 import { useEffect, useState, use as usePromise } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Panel, EmptyState, StatusPill, PriorityTag, Btn } from "@/components/ui";
+import { Panel, EmptyState, StatusPill, PriorityTag, Btn, Field, inputClass } from "@/components/ui";
 import { fmtD, fmtDT } from "@/lib/format";
+import { PRIORITIES, NT_STATUSES } from "@/lib/constants";
 
 function Timeline({ items }) {
   return (
@@ -25,6 +26,12 @@ function Timeline({ items }) {
   );
 }
 
+// Resolves to the notification, or false when it can't be loaded.
+async function fetchNotification(id) {
+  const res = await fetch(`/api/notifications/${id}`);
+  return res.ok ? (await res.json()).notification : false;
+}
+
 export default function NotificationDetailPage({ params }) {
   const { id } = usePromise(params);
   const router = useRouter();
@@ -32,17 +39,17 @@ export default function NotificationDetailPage({ params }) {
   const [me, setMe] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState(null);
+  const [lists, setLists] = useState({ departments: [], locations: [], natures: [] });
 
-  async function load() {
-    const res = await fetch(`/api/notifications/${id}`);
-    if (res.ok) setN((await res.json()).notification);
-    else setN(false);
+  function load() {
+    return fetchNotification(id).then(setN);
   }
 
   useEffect(() => {
-    load();
+    fetchNotification(id).then(setN);
     fetch("/api/me").then((r) => r.json()).then((d) => setMe(d.user));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   async function setStatus(status) {
@@ -58,11 +65,63 @@ export default function NotificationDetailPage({ params }) {
     else setError((await res.json().catch(() => ({}))).error || "Could not update the notification.");
   }
 
+  function startEdit() {
+    setForm({ dept: n.dept, location: n.location, nature: n.nature, priority: n.priority, status: n.status, job: n.job, description: n.description });
+    setError("");
+    setEditing(true);
+    Promise.all([
+      fetch("/api/departments").then((r) => r.json()),
+      fetch("/api/locations").then((r) => r.json()),
+      fetch("/api/natures").then((r) => r.json()),
+    ]).then(([d, l, na]) => setLists({ departments: d.departments || [], locations: l.locations || [], natures: na.natures || [] })).catch(() => {});
+  }
+
+  function set(key) {
+    return (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+  }
+
+  async function saveEdit(e) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    const res = await fetch(`/api/notifications/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ edit: form }),
+    });
+    setBusy(false);
+    if (res.ok) {
+      setEditing(false);
+      load();
+    } else {
+      setError((await res.json().catch(() => ({}))).error || "Could not save the notification.");
+    }
+  }
+
+  async function remove() {
+    const msg = n.workOrderNo
+      ? `Delete ${n.no} and its work order ${n.workOrderNo}? This cannot be undone.`
+      : `Delete ${n.no}? This cannot be undone.`;
+    if (!window.confirm(msg)) return;
+    setBusy(true);
+    setError("");
+    const res = await fetch(`/api/notifications/${id}`, { method: "DELETE" });
+    setBusy(false);
+    if (res.ok) router.push("/notifications");
+    else setError((await res.json().catch(() => ({}))).error || "Could not delete the notification.");
+  }
+
   if (n === null) return <p className="text-slate-500">Loading…</p>;
   if (n === false) return <EmptyState title="Notification not found" body="It may be outside your access scope." />;
 
   const canReview = me && ["ADMIN", "ENGINEER"].includes(me.role) && !["Rejected", "Closed"].includes(n.status);
   const canConvert = canReview && !n.workOrderNo;
+  const isAdmin = me?.role === "ADMIN";
+  // Keep the current value selectable even if it was since removed from Settings.
+  const opts = (rows, current) => {
+    const names = rows.map((r) => r.name);
+    return names.includes(current) ? names : [current, ...names];
+  };
 
   return (
     <div className="space-y-4">
@@ -86,10 +145,56 @@ export default function NotificationDetailPage({ params }) {
             {canReview && ["Raised", "Under Review"].includes(n.status) && <Btn variant="danger" disabled={busy} onClick={() => setStatus("Rejected")}>Reject</Btn>}
             {canConvert && <Btn variant="primary" onClick={() => router.push(`/workorders/new?from=${n.no}`)}>Convert to work order</Btn>}
             {n.workOrderNo && <Btn onClick={() => router.push(`/workorders/${n.workOrderNo}`)}>Open {n.workOrderNo}</Btn>}
+            {isAdmin && <Btn disabled={busy} onClick={() => (editing ? setEditing(false) : startEdit())}>{editing ? "Cancel edit" : "Edit"}</Btn>}
+            {isAdmin && <Btn variant="danger" disabled={busy} onClick={remove}>Delete</Btn>}
           </div>
         </div>
         {error && <p className="px-4 pb-3 text-sm text-red-600">{error}</p>}
       </Panel>
+
+      {isAdmin && editing && form && (
+        <form onSubmit={saveEdit}>
+          <Panel title="Edit notification" sub="Administrator access — every field can be changed">
+            <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label="Department" required>
+                <select className={inputClass} value={form.dept} onChange={set("dept")}>
+                  {opts(lists.departments, form.dept).map((x) => (<option key={x} value={x}>{x}</option>))}
+                </select>
+              </Field>
+              <Field label="Location" required>
+                <select className={inputClass} value={form.location} onChange={set("location")}>
+                  {opts(lists.locations, form.location).map((x) => (<option key={x} value={x}>{x}</option>))}
+                </select>
+              </Field>
+              <Field label="Nature of job" required>
+                <select className={inputClass} value={form.nature} onChange={set("nature")}>
+                  {opts(lists.natures, form.nature).map((x) => (<option key={x} value={x}>{x}</option>))}
+                </select>
+              </Field>
+              <Field label="Priority" required>
+                <select className={inputClass} value={form.priority} onChange={set("priority")}>
+                  {PRIORITIES.map((p) => (<option key={p} value={p}>{p}</option>))}
+                </select>
+              </Field>
+              <Field label="Status" required>
+                <select className={inputClass} value={form.status} onChange={set("status")}>
+                  {NT_STATUSES.map((s) => (<option key={s} value={s}>{s}</option>))}
+                </select>
+              </Field>
+              <Field label="Job" wide required>
+                <input className={inputClass} value={form.job} onChange={set("job")} />
+              </Field>
+              <Field label="Job description" wide required>
+                <textarea className={inputClass} rows={4} value={form.description} onChange={set("description")} />
+              </Field>
+            </div>
+            <div className="flex justify-end gap-2 px-4 py-3 border-t border-slate-200">
+              <Btn type="button" onClick={() => setEditing(false)}>Cancel</Btn>
+              <Btn type="submit" variant="primary" disabled={busy}>{busy ? "Saving…" : "Save changes"}</Btn>
+            </div>
+          </Panel>
+        </form>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Panel title="Problem description">

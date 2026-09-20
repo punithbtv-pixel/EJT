@@ -26,6 +26,17 @@ function Switch({ on, onClick }) {
   );
 }
 
+// The list endpoints answer { <endpoint>: [...] }, e.g. /api/locations -> { locations }.
+async function fetchList(endpoint) {
+  const res = await fetch(`/api/${endpoint}`);
+  return (await res.json())[endpoint] || [];
+}
+
+async function fetchUsers() {
+  const res = await fetch("/api/users");
+  return res.ok ? (await res.json()).users : [];
+}
+
 function MasterList({ endpoint, extraRender, withDeptFlags }) {
   const [rows, setRows] = useState(null);
   const [newName, setNewName] = useState("");
@@ -33,13 +44,10 @@ function MasterList({ endpoint, extraRender, withDeptFlags }) {
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState("");
 
-  const listKey = endpoint;
-  async function load() {
-    const res = await fetch(`/api/${endpoint}`);
-    const data = await res.json();
-    setRows(data[listKey] || []);
+  function load() {
+    return fetchList(endpoint).then(setRows);
   }
-  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchList(endpoint).then(setRows); }, [endpoint]);
 
   async function add() {
     if (!newName.trim()) return;
@@ -57,6 +65,12 @@ function MasterList({ endpoint, extraRender, withDeptFlags }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: row.id, active: !row.active }),
     });
+    load();
+  }
+  async function remove(row) {
+    if (!window.confirm(`Delete "${row.name}"? Existing notifications and work orders keep their recorded value.`)) return;
+    const res = await fetch(`/api/${endpoint}?id=${row.id}`, { method: "DELETE" });
+    if (!res.ok) window.alert((await res.json().catch(() => ({}))).error || "Could not delete.");
     load();
   }
   async function saveRename(row) {
@@ -101,6 +115,7 @@ function MasterList({ endpoint, extraRender, withDeptFlags }) {
                   {extraRender && extraRender(row)}
                   <span className="flex-1" />
                   <Btn onClick={() => { setEditingId(row.id); setEditName(row.name); }}>Rename</Btn>
+                  <Btn variant="danger" onClick={() => remove(row)}>Delete</Btn>
                   <Switch on={row.active} onClick={() => toggle(row)} />
                 </>
               )}
@@ -117,12 +132,10 @@ function UsersTab() {
   const [form, setForm] = useState({ name: "", username: "", password: "", dept: "", designation: "", role: ROLES.DEPT, email: "", mobile: "" });
   const [error, setError] = useState("");
 
-  async function load() {
-    const res = await fetch("/api/users");
-    if (res.ok) setRows((await res.json()).users);
-    else setRows([]);
+  function load() {
+    return fetchUsers().then(setRows);
   }
-  useEffect(() => { load(); }, []);
+  useEffect(() => { fetchUsers().then(setRows); }, []);
 
   async function toggle(u) {
     await fetch(`/api/users/${u.id}`, {
@@ -130,6 +143,40 @@ function UsersTab() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ active: !u.active }),
     });
+    load();
+  }
+
+  const [editId, setEditId] = useState(null);
+  const [edit, setEdit] = useState(null);
+  const [editError, setEditError] = useState("");
+
+  function startEdit(u) {
+    setEditId(u.id);
+    setEdit({ name: u.name, dept: u.dept, designation: u.designation || "", role: u.role, email: u.email || "", mobile: u.mobile || "", password: "" });
+    setEditError("");
+  }
+
+  async function saveEdit(e) {
+    e.preventDefault();
+    const body = { ...edit };
+    if (!body.password) delete body.password;
+    const res = await fetch(`/api/users/${editId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      setEditId(null);
+      load();
+    } else {
+      setEditError((await res.json().catch(() => ({}))).error || "Could not update the user.");
+    }
+  }
+
+  async function removeUser(u) {
+    if (!window.confirm(`Delete user "${u.name}"? This cannot be undone.`)) return;
+    const res = await fetch(`/api/users/${u.id}`, { method: "DELETE" });
+    if (!res.ok) window.alert((await res.json().catch(() => ({}))).error || "Could not delete the user.");
     load();
   }
 
@@ -176,18 +223,47 @@ function UsersTab() {
             <thead>
               <tr className="text-left text-xs uppercase tracking-wide text-slate-500 bg-slate-50">
                 <th className="px-4 py-2.5">Name</th><th className="px-4 py-2.5">Username</th><th className="px-4 py-2.5">Dept</th>
-                <th className="px-4 py-2.5">Role</th><th className="px-4 py-2.5">Status</th>
+                <th className="px-4 py-2.5">Role</th><th className="px-4 py-2.5">Status</th><th className="px-4 py-2.5" />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {rows.map((u) => (
-                <tr key={u.id}>
-                  <td className="px-4 py-2.5 font-medium">{u.name}</td>
-                  <td className="px-4 py-2.5 font-mono text-xs">{u.username}</td>
-                  <td className="px-4 py-2.5">{u.dept}</td>
-                  <td className="px-4 py-2.5">{roleLabel(u.role)}</td>
-                  <td className="px-4 py-2.5"><Switch on={u.active} onClick={() => toggle(u)} /></td>
-                </tr>
+                editId === u.id ? (
+                  <tr key={u.id}>
+                    <td colSpan={6} className="px-4 py-3 bg-slate-50">
+                      <form onSubmit={saveEdit} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <input className={inputClass} placeholder="Full name" value={edit.name} onChange={(e) => setEdit((f) => ({ ...f, name: e.target.value }))} />
+                        <input className={inputClass} placeholder="Department" value={edit.dept} onChange={(e) => setEdit((f) => ({ ...f, dept: e.target.value }))} />
+                        <input className={inputClass} placeholder="Designation" value={edit.designation} onChange={(e) => setEdit((f) => ({ ...f, designation: e.target.value }))} />
+                        <select className={inputClass} value={edit.role} onChange={(e) => setEdit((f) => ({ ...f, role: e.target.value }))}>
+                          {Object.values(ROLES).map((r) => (<option key={r} value={r}>{roleLabel(r)}</option>))}
+                        </select>
+                        <input className={inputClass} placeholder="Email" value={edit.email} onChange={(e) => setEdit((f) => ({ ...f, email: e.target.value }))} />
+                        <input className={inputClass} placeholder="Mobile" value={edit.mobile} onChange={(e) => setEdit((f) => ({ ...f, mobile: e.target.value }))} />
+                        <input className={inputClass} type="password" placeholder="New password (leave blank to keep)" autoComplete="new-password" value={edit.password} onChange={(e) => setEdit((f) => ({ ...f, password: e.target.value }))} />
+                        <div className="sm:col-span-2 flex gap-2">
+                          <Btn type="submit" variant="primary">Save</Btn>
+                          <Btn type="button" onClick={() => setEditId(null)}>Cancel</Btn>
+                        </div>
+                        {editError && <p className="sm:col-span-3 text-sm text-red-600">{editError}</p>}
+                      </form>
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={u.id}>
+                    <td className="px-4 py-2.5 font-medium">{u.name}</td>
+                    <td className="px-4 py-2.5 font-mono text-xs">{u.username}</td>
+                    <td className="px-4 py-2.5">{u.dept}</td>
+                    <td className="px-4 py-2.5">{roleLabel(u.role)}</td>
+                    <td className="px-4 py-2.5"><Switch on={u.active} onClick={() => toggle(u)} /></td>
+                    <td className="px-4 py-2.5">
+                      <span className="flex gap-2 justify-end">
+                        <Btn onClick={() => startEdit(u)}>Edit</Btn>
+                        <Btn variant="danger" onClick={() => removeUser(u)}>Delete</Btn>
+                      </span>
+                    </td>
+                  </tr>
+                )
               ))}
             </tbody>
           </table>

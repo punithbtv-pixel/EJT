@@ -35,6 +35,14 @@ export async function updateDepartment(id, patch) {
   }
   return prisma.department.update({ where: { id: Number(id) }, data: patch });
 }
+export async function deleteDepartment(id) {
+  if (isUiOnlyMode()) {
+    const db = await getDB();
+    db.departments = db.departments.filter((d) => d.id !== Number(id));
+    return;
+  }
+  await prisma.department.delete({ where: { id: Number(id) } });
+}
 
 export async function listLocations() {
   if (isUiOnlyMode()) return (await getDB()).locations;
@@ -59,6 +67,14 @@ export async function updateLocation(id, patch) {
   }
   return prisma.location.update({ where: { id: Number(id) }, data: patch });
 }
+export async function deleteLocation(id) {
+  if (isUiOnlyMode()) {
+    const db = await getDB();
+    db.locations = db.locations.filter((l) => l.id !== Number(id));
+    return;
+  }
+  await prisma.location.delete({ where: { id: Number(id) } });
+}
 
 export async function listNatures() {
   if (isUiOnlyMode()) return (await getDB()).natures;
@@ -82,6 +98,14 @@ export async function updateNature(id, patch) {
     return row;
   }
   return prisma.jobNature.update({ where: { id: Number(id) }, data: patch });
+}
+export async function deleteNature(id) {
+  if (isUiOnlyMode()) {
+    const db = await getDB();
+    db.natures = db.natures.filter((n) => n.id !== Number(id));
+    return;
+  }
+  await prisma.jobNature.delete({ where: { id: Number(id) } });
 }
 
 // ── Users ───────────────────────────────────────────────────────────────
@@ -133,6 +157,20 @@ export async function updateUser(id, patch) {
   }
   const row = await prisma.user.update({ where: { id: Number(id) }, data: patch });
   return publicUser(row);
+}
+export async function deleteUser(id) {
+  if (isUiOnlyMode()) {
+    const db = await getDB();
+    db.users = db.users.filter((u) => u.id !== Number(id));
+    return;
+  }
+  try {
+    await prisma.user.delete({ where: { id: Number(id) } });
+  } catch (e) {
+    // FK violation: the user has raised notifications or holds work orders.
+    if (e.code === "P2003") { const err = new Error("This user has notifications or work orders on record. Deactivate them instead."); err.code = "IN_USE"; throw err; }
+    throw e;
+  }
 }
 
 // ── Notifications ───────────────────────────────────────────────────────
@@ -221,6 +259,45 @@ export async function setNotificationStatus(no, status, who) {
   const history = [...(n.history || []), { at: nowISO(), who, text: label }];
   const updated = await prisma.notification.update({ where: { no }, data: { status, history } });
   return normNotif(updated, null);
+}
+
+// Admin: edit any field of a notification, whatever its status.
+const NOTIF_EDITABLE = ["dept", "location", "job", "description", "nature", "priority", "status"];
+export async function updateNotification(no, patch, who) {
+  const data = {};
+  for (const k of NOTIF_EDITABLE) if (patch[k] !== undefined) data[k] = patch[k];
+  const text = "Notification edited by administrator.";
+  if (isUiOnlyMode()) {
+    const db = await getDB();
+    const n = db.notifications.find((x) => x.no === no);
+    if (!n) throw new Error("Not found");
+    Object.assign(n, data);
+    pushHistory(n, who, text);
+    return normNotif(n, db.users);
+  }
+  const n = await prisma.notification.findUnique({ where: { no } });
+  if (!n) throw new Error("Not found");
+  const history = [...(n.history || []), { at: nowISO(), who, text }];
+  const updated = await prisma.notification.update({ where: { no }, data: { ...data, history }, include: { workOrder: true } });
+  return normNotif({ ...updated, workOrderNo: updated.workOrder?.no }, null);
+}
+
+// Admin: delete a notification together with the work order raised from it.
+export async function deleteNotification(no) {
+  if (isUiOnlyMode()) {
+    const db = await getDB();
+    const idx = db.notifications.findIndex((x) => x.no === no);
+    if (idx < 0) throw new Error("Not found");
+    db.workOrders = db.workOrders.filter((w) => w.notificationNo !== no);
+    db.notifications.splice(idx, 1);
+    return;
+  }
+  const n = await prisma.notification.findUnique({ where: { no } });
+  if (!n) throw new Error("Not found");
+  await prisma.$transaction([
+    prisma.workOrder.deleteMany({ where: { notificationId: n.id } }),
+    prisma.notification.delete({ where: { no } }),
+  ]);
 }
 
 // ── Work Orders ─────────────────────────────────────────────────────────
@@ -452,6 +529,64 @@ export async function cancelWorkOrder(no, who) {
     data: { status: "Accepted", history: withHistory(before.notification.history, who, `Work order ${no} cancelled — notification returned to accepted.`) },
   });
   return updated;
+}
+
+// Admin: edit any field of a work order, whatever its status.
+const WO_EDITABLE = ["dept", "location", "job", "description", "nature", "priority", "status", "workDone", "spares", "remarks"];
+const WO_DATES = ["plannedStart", "plannedEnd", "actualStart", "actualEnd"];
+function parseStamp(s) {
+  return s ? new Date(String(s).replace(" ", "T")) : null;
+}
+export async function updateWorkOrder(no, patch, who) {
+  const text = "Work order edited by administrator.";
+  const data = {};
+  for (const k of WO_EDITABLE) if (patch[k] !== undefined) data[k] = patch[k];
+  const dates = {};
+  for (const k of WO_DATES) if (patch[k] !== undefined) dates[k] = patch[k] || null;
+  const assignChanged = patch.assignedToName !== undefined;
+  const assignedToName = patch.assignedToName || null;
+
+  if (isUiOnlyMode()) {
+    const { db, w } = await getWOMock(no);
+    Object.assign(w, data, dates);
+    if (assignChanged) {
+      w.assignedToName = assignedToName;
+      w.assignedToId = db.users.find((u) => u.name === assignedToName)?.id ?? null;
+    }
+    w.history = withHistory(w.history, who, text);
+    return finishMock(w, db);
+  }
+  const before = await prisma.workOrder.findUnique({ where: { no } });
+  if (!before) throw new Error("Not found");
+  const prismaDates = Object.fromEntries(Object.entries(dates).map(([k, v]) => [k, parseStamp(v)]));
+  const assign = {};
+  if (assignChanged) {
+    const u = assignedToName ? await prisma.user.findFirst({ where: { name: assignedToName } }) : null;
+    assign.assignedToId = u?.id ?? null;
+  }
+  const { updated } = await finishPrisma(no, { ...data, ...prismaDates, ...assign, history: withHistory(before.history, who, text) });
+  return { ...updated, assignedToName };
+}
+
+// Admin: delete a work order and return its notification to "Accepted".
+export async function deleteWorkOrder(no, who) {
+  const text = `Work order ${no} deleted by administrator — notification returned to accepted.`;
+  if (isUiOnlyMode()) {
+    const { db, w } = await getWOMock(no);
+    db.workOrders = db.workOrders.filter((x) => x !== w);
+    const n = db.notifications.find((x) => x.no === w.notificationNo);
+    if (n) { n.workOrderNo = null; n.status = "Accepted"; pushHistory(n, who, text); }
+    return;
+  }
+  const before = await prisma.workOrder.findUnique({ where: { no }, include: { notification: true } });
+  if (!before) throw new Error("Not found");
+  await prisma.$transaction([
+    prisma.workOrder.delete({ where: { no } }),
+    prisma.notification.update({
+      where: { id: before.notificationId },
+      data: { status: "Accepted", history: withHistory(before.notification.history, who, text) },
+    }),
+  ]);
 }
 
 // ── Dashboard aggregation ───────────────────────────────────────────────

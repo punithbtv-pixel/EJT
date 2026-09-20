@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/apiAuth";
 import { ROLES } from "@/lib/roles";
-import { listDepartments, addDepartment, updateDepartment } from "@/lib/store";
+import { listDepartments, addDepartment, updateDepartment, deleteDepartment } from "@/lib/store";
 
 export async function GET() {
   const auth = await requireSession();
@@ -35,5 +35,20 @@ export async function PATCH(request) {
     return NextResponse.json({ department });
   } catch {
     return NextResponse.json({ error: "Could not update department" }, { status: 500 });
+  }
+}
+
+export async function DELETE(request) {
+  const auth = await requireSession(ROLES.ADMIN);
+  if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  const id = new URL(request.url).searchParams.get("id");
+  if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+
+  try {
+    await deleteDepartment(id);
+    return NextResponse.json({ ok: true });
+  } catch {
+    return NextResponse.json({ error: "Could not delete department" }, { status: 500 });
   }
 }

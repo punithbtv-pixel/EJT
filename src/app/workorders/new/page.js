@@ -22,7 +22,6 @@ function NewWorkOrderInner() {
     });
     fetch("/api/departments").then((r) => r.json()).then((d) => setDepartments((d.departments || []).filter((x) => x.active && x.work)));
     fetch("/api/users").then((r) => r.json()).then((d) => setUsers((d.users || []).filter((x) => x.active && x.role === "TECH"))).catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fromNo]);
 
   function set(key) {

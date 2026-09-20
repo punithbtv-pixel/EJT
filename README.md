@@ -21,6 +21,7 @@ Built with **Next.js (App Router, JavaScript)**, **Prisma + PostgreSQL**,
 | **Engineering Supervisor** | review / accept / reject / convert | assign / close | no |
 | **Department Supervisor** | raise (own dept) | read only | no |
 | **Engineer / Technician** | — | execute own assigned work orders | no |
+| **Management** | view + export CSV | view + export CSV | no (hidden) |
 
 ## Local setup
 

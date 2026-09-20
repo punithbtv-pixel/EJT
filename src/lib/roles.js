@@ -3,13 +3,18 @@ export const ROLES = {
   ENGINEER: "ENGINEER",
   DEPT: "DEPT",
   TECH: "TECH",
+  MANAGEMENT: "MANAGEMENT",
 };
 
 // Pages each role may visit.
+// canAccessPage takes the first matching prefix, so the create pages are
+// listed ahead of their parent lists.
 export const PAGE_ACCESS = {
-  "/": [ROLES.ADMIN, ROLES.ENGINEER, ROLES.DEPT, ROLES.TECH],
-  "/notifications": [ROLES.ADMIN, ROLES.ENGINEER, ROLES.DEPT, ROLES.TECH],
-  "/workorders": [ROLES.ADMIN, ROLES.ENGINEER, ROLES.DEPT, ROLES.TECH],
+  "/notifications/new": [ROLES.ADMIN, ROLES.ENGINEER, ROLES.DEPT],
+  "/workorders/new": [ROLES.ADMIN, ROLES.ENGINEER],
+  "/": [ROLES.ADMIN, ROLES.ENGINEER, ROLES.DEPT, ROLES.TECH, ROLES.MANAGEMENT],
+  "/notifications": [ROLES.ADMIN, ROLES.ENGINEER, ROLES.DEPT, ROLES.TECH, ROLES.MANAGEMENT],
+  "/workorders": [ROLES.ADMIN, ROLES.ENGINEER, ROLES.DEPT, ROLES.TECH, ROLES.MANAGEMENT],
   "/settings": [ROLES.ADMIN],
 };
 
@@ -27,11 +32,15 @@ export function canAccessPage(role, pathname) {
 // Notification / work-order capability matrix, matching the approved
 // Job Tracker prototype: Admin and Engineer run the full lifecycle,
 // Dept can raise and read but not act, Tech executes only their own work.
+// `manageAll` (Admin only) allows editing and deleting any notification or
+// work order, regardless of its status.
 export const PERMS = {
-  [ROLES.ADMIN]: { settings: true, createNotif: true, review: true, convert: true, assign: true, close: true, execute: false, scope: "all" },
-  [ROLES.ENGINEER]: { settings: false, createNotif: true, review: true, convert: true, assign: true, close: true, execute: false, scope: "all" },
-  [ROLES.DEPT]: { settings: false, createNotif: true, review: false, convert: false, assign: false, close: false, execute: false, scope: "dept" },
-  [ROLES.TECH]: { settings: false, createNotif: false, review: false, convert: false, assign: false, close: false, execute: true, scope: "mine" },
+  [ROLES.ADMIN]: { settings: true, manageAll: true, createNotif: true, review: true, convert: true, assign: true, close: true, execute: false, scope: "all" },
+  [ROLES.ENGINEER]: { settings: false, manageAll: false, createNotif: true, review: true, convert: true, assign: true, close: true, execute: false, scope: "all" },
+  [ROLES.DEPT]: { settings: false, manageAll: false, createNotif: true, review: false, convert: false, assign: false, close: false, execute: false, scope: "dept" },
+  [ROLES.TECH]: { settings: false, manageAll: false, createNotif: false, review: false, convert: false, assign: false, close: false, execute: true, scope: "mine" },
+  // Management: read everything and export it, change nothing.
+  [ROLES.MANAGEMENT]: { settings: false, manageAll: false, createNotif: false, review: false, convert: false, assign: false, close: false, execute: false, scope: "all" },
 };
 
 export function permsFor(role) {
@@ -49,6 +58,7 @@ export function roleLabel(role) {
       [ROLES.ENGINEER]: "Engineering Supervisor",
       [ROLES.DEPT]: "Department Supervisor",
       [ROLES.TECH]: "Engineer / Technician",
+      [ROLES.MANAGEMENT]: "Management",
     }[role] ?? role ?? ""
   );
 }

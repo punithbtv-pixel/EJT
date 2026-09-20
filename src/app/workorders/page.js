@@ -3,9 +3,32 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Panel, EmptyState, StatusPill, PriorityTag, inputClass } from "@/components/ui";
+import { Panel, EmptyState, StatusPill, PriorityTag, Btn, inputClass } from "@/components/ui";
 import { fmtD, fmtDT } from "@/lib/format";
 import { WO_STATUSES } from "@/lib/constants";
+import { downloadCsv, stamp } from "@/lib/exportCsv";
+
+const EXPORT_COLUMNS = [
+  { label: "Work order No.", value: (w) => w.no },
+  { label: "Notification No.", value: (w) => w.notificationNo },
+  { label: "Created", value: (w) => w.createdAt },
+  { label: "Department", value: (w) => w.dept },
+  { label: "Location", value: (w) => w.location },
+  { label: "Job", value: (w) => w.job },
+  { label: "Description", value: (w) => w.description },
+  { label: "Nature", value: (w) => w.nature },
+  { label: "Priority", value: (w) => w.priority },
+  { label: "Status", value: (w) => w.status },
+  { label: "Assigned to", value: (w) => w.assignedToName },
+  { label: "Planned start", value: (w) => w.plannedStart },
+  { label: "Planned end", value: (w) => w.plannedEnd },
+  { label: "Actual start", value: (w) => w.actualStart },
+  { label: "Actual end", value: (w) => w.actualEnd },
+  { label: "Work done", value: (w) => w.workDone },
+  { label: "Spare parts used", value: (w) => w.spares },
+  { label: "Remarks", value: (w) => w.remarks },
+  { label: "Completed by", value: (w) => w.completedByName },
+];
 
 function WorkOrdersInner() {
   const search = useSearchParams();
@@ -31,7 +54,12 @@ function WorkOrdersInner() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold text-slate-900">{me?.role === "TECH" ? "My Work Orders" : "Work Orders"}</h1>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <h1 className="text-xl font-semibold text-slate-900">{me?.role === "TECH" ? "My Work Orders" : "Work Orders"}</h1>
+        <Btn disabled={!filtered.length} onClick={() => downloadCsv(`work-orders-${stamp()}.csv`, EXPORT_COLUMNS, filtered)}>
+          Export CSV
+        </Btn>
+      </div>
 
       <Panel>
         <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 border-b border-slate-200">

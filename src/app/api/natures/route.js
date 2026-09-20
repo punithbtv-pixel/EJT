@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/apiAuth";
 import { ROLES } from "@/lib/roles";
-import { listNatures, addNature, updateNature } from "@/lib/store";
+import { listNatures, addNature, updateNature, deleteNature } from "@/lib/store";
 
 export async function GET() {
   const auth = await requireSession();
@@ -34,5 +34,20 @@ export async function PATCH(request) {
     return NextResponse.json({ nature });
   } catch {
     return NextResponse.json({ error: "Could not update nature" }, { status: 500 });
+  }
+}
+
+export async function DELETE(request) {
+  const auth = await requireSession(ROLES.ADMIN);
+  if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  const id = new URL(request.url).searchParams.get("id");
+  if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+
+  try {
+    await deleteNature(id);
+    return NextResponse.json({ ok: true });
+  } catch {
+    return NextResponse.json({ error: "Could not delete nature" }, { status: 500 });
   }
 }
