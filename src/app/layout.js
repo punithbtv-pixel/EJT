@@ -13,7 +13,7 @@ export default function RootLayout({ children }) {
         <NavBar />
         <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 py-6">{children}</main>
         <footer className="text-right text-xs text-slate-400 py-4 max-w-7xl mx-auto w-full px-4 sm:px-6">
-          ZYN Engineering Job Tracker (EJT)
+          Designed and built by Punith L Naik
         </footer>
       </body>
     </html>
