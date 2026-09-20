@@ -1,0 +1,117 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Application users with role-based access.
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String
+  name         String
+  role         String // ADMIN | ENGINEER | DEPT | TECH
+  dept         String // e.g. "Milling", "Electrical", "Admin"
+  designation  String // e.g. "Administrator", "Engineering Supervisor"
+  email        String?
+  mobile       String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  raisedNotifications Notification[] @relation("RaisedBy")
+  assignedWorkOrders  WorkOrder[]    @relation("AssignedTo")
+}
+
+/// Department master list — used by both notifications and work orders.
+model Department {
+  id     Int     @id @default(autoincrement())
+  name   String  @unique
+  notif  Boolean @default(true) // usable as a notification-raising department
+  work   Boolean @default(true) // usable as a work-executing department
+  active Boolean @default(true)
+}
+
+/// Job location master list (Milling, Boiler, Powerhouse, ...).
+model Location {
+  id     Int     @id @default(autoincrement())
+  name   String  @unique
+  active Boolean @default(true)
+}
+
+/// Nature-of-job master list (Breakdown, Preventive Maintenance, ...).
+model JobNature {
+  id     Int     @id @default(autoincrement())
+  name   String  @unique
+  active Boolean @default(true)
+}
+
+/// A problem raised by a department, reviewed by engineering, optionally
+/// converted into a WorkOrder.
+model Notification {
+  id          Int      @id @default(autoincrement())
+  no          String   @unique // e.g. "NT-2026-00412"
+  date        DateTime @db.Date
+  time        String // "HH:MM"
+  dept        String
+  location    String
+  job         String
+  description String
+  nature      String
+  priority    String // Low | Medium | High | Critical
+  status      String // Raised | Under Review | Accepted | Rejected | Converted to Work Order | Closed
+  attachments Json     @default("[]")
+  history     Json     @default("[]") // [{ at, who, text }]
+
+  raisedById Int
+  raisedBy   User @relation("RaisedBy", fields: [raisedById], references: [id])
+
+  workOrder WorkOrder?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([dept])
+  @@index([status])
+  @@index([date])
+}
+
+/// The execution record created from a Notification.
+model WorkOrder {
+  id           Int       @id @default(autoincrement())
+  no           String    @unique // e.g. "WO-2026-00458"
+  dept         String // working department
+  location     String
+  job          String
+  description  String
+  nature       String
+  priority     String
+  status       String // Pending | Assigned | In Progress | On Hold | Completed | Closed | Cancelled
+  plannedStart DateTime
+  plannedEnd   DateTime
+  actualStart  DateTime?
+  actualEnd    DateTime?
+  workDone        String    @default("")
+  spares          String    @default("")
+  remarks         String    @default("")
+  completedAt     DateTime?
+  completedByName String?
+  attachments     Json      @default("[]")
+  history         Json      @default("[]")
+
+  notificationId Int          @unique
+  notification   Notification @relation(fields: [notificationId], references: [id])
+
+  assignedToId Int?
+  assignedTo   User? @relation("AssignedTo", fields: [assignedToId], references: [id])
+
+  createdById Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([dept])
+  @@index([status])
+}
