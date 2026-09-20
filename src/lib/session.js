@@ -36,7 +36,7 @@ export async function hashPassword(password) {
 }
 
 export async function createSessionToken(user) {
-  const payload = { id: user.id, username: user.username, role: user.role, name: user.name };
+  const payload = { id: user.id, username: user.username, role: user.role, name: user.name, dept: user.dept };
   const data = toBase64Url(JSON.stringify(payload));
   const sig = await sha256Hex(`${data}::${sessionSecret()}`);
   return `${data}.${sig}`;

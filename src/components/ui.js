@@ -145,7 +145,7 @@ export function Modal({ title, onClose, children, wide }) {
       className="fixed inset-0 z-50 bg-slate-900/50 flex items-start sm:items-center justify-center p-4 overflow-y-auto"
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className={`bg-white rounded-xl border border-slate-200 shadow-xl w-full ${wide ? "max-w-2xl" : "max-w-md"} my-8`}>
+      <div className={`bg-white rounded-xl border border-slate-200 shadow-xl w-full ${wide === "xl" ? "max-w-4xl" : wide ? "max-w-2xl" : "max-w-md"} my-8`}>
         <div className="flex items-center px-4 py-3 border-b border-slate-200">
           <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
           <div className="flex-1" />

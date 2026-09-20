@@ -22,6 +22,39 @@ Built with **Next.js (App Router, JavaScript)**, **Prisma + PostgreSQL**,
 | **Department Supervisor** | raise (own dept) | read only | no |
 | **Engineer / Technician** | — | execute own assigned work orders | no |
 | **Management** | view + export CSV | view + export CSV | no (hidden) |
+| **Stores** | — (no access) | — (no access) | no (hidden) — sees the Inventory menu only |
+
+**Inventory** (store stock) is open to Administrator, Management, Stores, and
+any user whose department is Electrical (whatever their role):
+
+| | View + Export | Add / Edit / Delete a spare | Import stock |
+|---|---|---|---|
+| Administrator, Stores | yes | yes | yes |
+| Management, Electrical department | yes | — | — |
+
+## Inventory
+
+**Inventory** lists the store's spares (2,990 in the ZYN store workbooks: a
+*Local* list and an *Imported* list) with a search that matches every word
+you type against the item name, rack/location, department and category.
+Stock on hand is always `opening + received − issued`; an item is *Low* when
+it is at/below its reorder level (Imported list: at or below; Local list:
+strictly below — each list keeps the rule its sheet used) and *Out* at zero.
+
+- **Import stock** reads a store workbook (the **Net stock** sheet is found
+  automatically; both the "IMPORTED ITEMS" and "LOCAL ITEMS" layouts work) or
+  a file exported from Inventory. It shows a preview of every change and only
+  saves when you confirm. Items are matched by name; items missing from the file
+  are never deleted, and a blank location/department/category never
+  overwrites what is saved.
+- **Export to Excel** downloads whatever is currently filtered; the same file
+  can be edited and imported back.
+- The real workbooks are **not committed** (`/data/*ITEMS*.xlsx` is in
+  `.gitignore`). Put them in `data/` and `npm run db:seed` loads them, or use
+  **Import stock** in the app. With no workbooks, UI-only mode shows a small
+  sample.
+- Electrical-department access is read from the login session, so users need to
+  sign in again after this feature is deployed.
 
 ## Local setup
 
@@ -86,13 +119,14 @@ restart, exactly like the sibling MIS project's own UI-only mode.
 ## Project layout
 
 ```
-prisma/schema.prisma   User, Department, Location, JobNature, Notification, WorkOrder
+prisma/schema.prisma   User, Department, Location, JobNature, Notification, WorkOrder, InventoryItem
 prisma/seed.mjs         Loads the sample data from src/lib/seedData.js
 src/lib/                prisma client, roles/permissions, session, seed data, data-access layer
 src/lib/store.js        Every read/write goes through here — branches between
                          Prisma (real DB) and the in-memory mock store (UI_ONLY)
 src/proxy.js            Login gate + role-based page access for all routes
 src/app/api/            login, logout, me, notifications, workorders, departments,
-                         locations, natures, users, dashboard
-src/app/                login, dashboard (/), notifications, workorders, settings
+                         locations, natures, users, dashboard, inventory (+ /import)
+src/app/                login, dashboard (/), notifications, workorders, inventory, settings
+src/lib/inventory*.js   Stock rules, workbook parser (browser + server), data/ loader
 ```

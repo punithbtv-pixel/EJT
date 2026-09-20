@@ -27,3 +27,6 @@ next-env.d.ts
 
 # vercel
 .vercel
+
+# Store-stock workbooks hold the store's real stock levels — keep them out of the repo
+/data/*ITEMS*.xlsx

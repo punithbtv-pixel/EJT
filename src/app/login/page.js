@@ -2,6 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { homeFor } from "@/lib/roles";
 
 function LoginForm() {
   const router = useRouter();
@@ -22,8 +23,8 @@ function LoginForm() {
     });
     setLoading(false);
     if (res.ok) {
-      const next = search.get("next") || "/";
-      router.push(next);
+      const data = await res.json().catch(() => ({}));
+      router.push(search.get("next") || homeFor(data.user?.role));
       router.refresh();
     } else {
       const data = await res.json().catch(() => ({}));

@@ -1,7 +1,9 @@
-// Client-side Excel export. Only ever writes a workbook built from data this
-// app already trusts (never parses an uploaded file), so the known SheetJS
-// advisories — which are about parsing attacker-supplied spreadsheets — do
-// not apply to this write-only usage.
+// Client-side Excel export. This module only ever writes a workbook built from
+// data the app already trusts, so the known SheetJS advisories — which are about
+// parsing attacker-supplied spreadsheets — do not apply to it.
+// (Inventory → Import stock is the one place that reads an uploaded workbook:
+// it is limited to Administrator and Stores, runs in that user's own browser on
+// their own file, and the server only receives rows it re-validates.)
 import * as XLSX from "xlsx";
 
 // columns: [{ key, header }]; rows: array of objects.

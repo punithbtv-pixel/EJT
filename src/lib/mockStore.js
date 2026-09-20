@@ -2,7 +2,9 @@
 // server process (a warm serverless instance, or `next dev`/`next start`) —
 // writes are not persisted across restarts, exactly like the sibling
 // PowerHouse MIS project's own UI-only mode.
-import { DEPARTMENTS, NATURES, USERS, NT_SEED, WO_SEED, engineerOf } from "@/lib/seedData";
+import { DEPARTMENTS, NATURES, USERS, NT_SEED, WO_SEED, INVENTORY_SAMPLE, engineerOf } from "@/lib/seedData";
+import { loadInventoryFromDir } from "@/lib/inventoryFiles";
+import { nameKey } from "@/lib/inventory";
 import { hashPassword } from "@/lib/session";
 
 let DB = null;
@@ -61,17 +63,22 @@ async function build() {
     };
   });
 
+  // Store stock: the workbooks in data/ when present, otherwise a small sample.
+  const stock = loadInventoryFromDir();
+  const inventory = (stock.length ? stock : INVENTORY_SAMPLE).map((r, i) => ({ id: i + 1, ...r, nameKey: nameKey(r.name) }));
+
   for (const n of notifications) {
     if (n.workOrderNo) n.status = n.status; // no-op, status already carries "Converted to Work Order"
   }
 
   return {
-    seq: { nt: 412, wo: 458, user: users.length, dept: DEPARTMENTS.length, nat: NATURES.length },
+    seq: { nt: 412, wo: 458, user: users.length, dept: DEPARTMENTS.length, nat: NATURES.length, inv: inventory.length },
     departments: DEPARTMENTS.map((d, i) => ({ id: i + 1, ...d })),
     natures: NATURES.map((n, i) => ({ id: i + 1, ...n })),
     users,
     notifications,
     workOrders,
+    inventory,
   };
 }
 

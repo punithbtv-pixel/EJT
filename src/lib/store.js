@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { getDB, nextNo, nowStamp } from "@/lib/mockStore";
 import { engineerOf } from "@/lib/seedData";
 import { WO_OPEN } from "@/lib/constants";
+import { balanceOf, stockStatus, nameKey, importChanges } from "@/lib/inventory";
 
 function nowISO() {
   return new Date().toISOString().slice(0, 16).replace("T", " ");
@@ -609,4 +610,140 @@ export async function getDashboardData({ scope, userDept, userName } = {}) {
   const notifications = await listNotifications({ scope, userDept, userName });
   const workOrders = await listWorkOrders({ scope, userDept, userName });
   return { notifications, workOrders, open: workOrders.filter((w) => WO_OPEN.includes(w.status)) };
+}
+
+// ── Inventory (store stock) ─────────────────────────────────────────────
+function normInv(r) {
+  const balance = balanceOf(r);
+  return {
+    id: r.id, source: r.source, name: r.name, dept: r.dept, category: r.category, location: r.location,
+    opening: r.opening, received: r.received, issued: r.issued, reorderLevel: r.reorderLevel,
+    balance, status: stockStatus(r.source, balance, r.reorderLevel),
+    fsn: r.fsn || "", avgMonthly: r.avgMonthly || 0,
+  };
+}
+async function rawInventory() {
+  if (isUiOnlyMode()) return (await getDB()).inventory;
+  return prisma.inventoryItem.findMany();
+}
+function dupError(item) {
+  const err = new Error(`“${item.name}” is already in the ${item.source === "IMPORTED" ? "Imported" : "Local"} list. Edit that item instead.`);
+  err.code = "DUP";
+  return err;
+}
+function notFound() {
+  const err = new Error("Not found");
+  err.code = "NOT_FOUND";
+  return err;
+}
+
+export async function listInventory() {
+  const rows = await rawInventory();
+  return rows.map(normInv).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// `item` is already cleaned and validated (see lib/inventory.js).
+export async function createInventoryItem(item) {
+  const key = nameKey(item.name);
+  if (isUiOnlyMode()) {
+    const db = await getDB();
+    if (db.inventory.some((r) => r.source === item.source && r.nameKey === key)) throw dupError(item);
+    const row = { id: ++db.seq.inv, ...item, nameKey: key };
+    db.inventory.push(row);
+    return normInv(row);
+  }
+  try {
+    return normInv(await prisma.inventoryItem.create({ data: { ...item, nameKey: key } }));
+  } catch (e) {
+    if (e.code === "P2002") throw dupError(item);
+    throw e;
+  }
+}
+
+// The list (Local / Imported) an item belongs to never changes; everything else can.
+export async function updateInventoryItem(id, item) {
+  const { source: _source, ...fields } = item;
+  const key = nameKey(fields.name);
+  if (isUiOnlyMode()) {
+    const db = await getDB();
+    const row = db.inventory.find((r) => r.id === Number(id));
+    if (!row) throw notFound();
+    if (db.inventory.some((r) => r.id !== row.id && r.source === row.source && r.nameKey === key)) throw dupError({ ...fields, source: row.source });
+    Object.assign(row, fields, { nameKey: key });
+    return normInv(row);
+  }
+  const cur = await prisma.inventoryItem.findUnique({ where: { id: Number(id) } });
+  if (!cur) throw notFound();
+  try {
+    return normInv(await prisma.inventoryItem.update({ where: { id: cur.id }, data: { ...fields, nameKey: key } }));
+  } catch (e) {
+    if (e.code === "P2025") throw notFound();
+    if (e.code === "P2002") throw dupError({ ...fields, source: cur.source });
+    throw e;
+  }
+}
+
+export async function deleteInventoryItem(id) {
+  if (isUiOnlyMode()) {
+    const db = await getDB();
+    const idx = db.inventory.findIndex((r) => r.id === Number(id));
+    if (idx < 0) throw notFound();
+    db.inventory.splice(idx, 1);
+    return;
+  }
+  try {
+    await prisma.inventoryItem.delete({ where: { id: Number(id) } });
+  } catch (e) {
+    if (e.code === "P2025") throw notFound();
+    throw e;
+  }
+}
+
+// Works out what importing `rows` (cleaned + validated) would do, without changing anything.
+export async function planInventoryImport(rows) {
+  const existing = await rawInventory();
+  const byKey = new Map(existing.map((r) => [`${r.source}|${r.nameKey}`, r]));
+  const seen = new Set();
+  const news = [];
+  const updates = [];
+  let unchanged = 0;
+  let duplicates = 0;
+  for (const row of rows) {
+    const key = `${row.source}|${nameKey(row.name)}`;
+    if (seen.has(key)) { duplicates++; continue; }
+    seen.add(key);
+    const cur = byKey.get(key);
+    if (!cur) { news.push(row); continue; }
+    const changes = importChanges(cur, row);
+    if (changes.length) updates.push({ id: cur.id, source: cur.source, name: cur.name, location: cur.location, changes });
+    else unchanged++;
+  }
+  // Items on the lists the file covers that the file doesn't mention. They are kept, never deleted.
+  const listsInFile = new Set(rows.map((r) => r.source));
+  const notInFile = existing.filter((r) => listsInFile.has(r.source) && !seen.has(`${r.source}|${r.nameKey}`)).length;
+  return { news, updates, unchanged, duplicates, notInFile };
+}
+
+// Saves a plan from planInventoryImport().
+export async function applyInventoryImport(plan) {
+  if (isUiOnlyMode()) {
+    const db = await getDB();
+    for (const u of plan.updates) {
+      const row = db.inventory.find((r) => r.id === u.id);
+      if (row) for (const c of u.changes) row[c.field] = c.to;
+    }
+    for (const n of plan.news) db.inventory.push({ id: ++db.seq.inv, ...n, nameKey: nameKey(n.name) });
+    return;
+  }
+  const data = plan.news.map((n) => ({ ...n, nameKey: nameKey(n.name) }));
+  for (let i = 0; i < data.length; i += 500) {
+    await prisma.inventoryItem.createMany({ data: data.slice(i, i + 500), skipDuplicates: true });
+  }
+  for (let i = 0; i < plan.updates.length; i += 100) {
+    await prisma.$transaction(
+      plan.updates.slice(i, i + 100).map((u) =>
+        prisma.inventoryItem.update({ where: { id: u.id }, data: Object.fromEntries(u.changes.map((c) => [c.field, c.to])) }),
+      ),
+    );
+  }
 }

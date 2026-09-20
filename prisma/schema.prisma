@@ -108,3 +108,27 @@ model WorkOrder {
   @@index([dept])
   @@index([status])
 }
+
+/// One spare or consumable in the store. The stock on hand and the reorder
+/// status are derived (opening + received − issued), never stored.
+model InventoryItem {
+  id           Int      @id @default(autoincrement())
+  source       String // LOCAL | IMPORTED — which store list the item belongs to
+  name         String
+  nameKey      String // upper-cased, whitespace-collapsed name: makes matching case-insensitive
+  dept         String   @default("")
+  category     String   @default("")
+  location     String   @default("") // rack / almirah / floor
+  opening      Float    @default(0)
+  received     Float    @default(0)
+  issued       Float    @default(0)
+  reorderLevel Float    @default(0)
+  fsn          String   @default("") // movement class from the Local sheet
+  avgMonthly   Float    @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([source, nameKey])
+  @@index([dept])
+  @@index([location])
+}

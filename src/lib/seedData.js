@@ -33,12 +33,14 @@ const ROLE_OF_DESIGNATION = {
   "Department Supervisor": ROLES.DEPT,
   "Engineer/Technician": ROLES.TECH,
   Management: ROLES.MANAGEMENT,
+  Stores: ROLES.STORES,
 };
 
 // [name, emp, dept, designation, email, mobile, active]
 const USER_ROWS = [
   ["Suresh Menon", "EMP-1001", "Admin", "Administrator", "suresh.menon@zynelectrical.co.in", "+91 98450 11021", true],
   ["Management", "EMP-1002", "Management", "Management", "", "", true],
+  ["Stores", "EMP-1003", "Stores", "Stores", "", "", true],
   ["Anil Deshpande", "EMP-1012", "Mechanical", "Engineering Supervisor", "anil.d@zynelectrical.co.in", "+91 98450 11034", true],
   ["Farid Qureshi", "EMP-1015", "Electrical", "Engineering Supervisor", "farid.q@zynelectrical.co.in", "+91 98450 11038", true],
   ["Ravi Kulkarni", "EMP-1103", "Milling", "Department Supervisor", "ravi.k@zynelectrical.co.in", "+91 98450 11102", true],
@@ -174,4 +176,21 @@ export const WO_SEED = [
 ["WO-2026-00421","NT-2026-00371","Boiler","Prakash Gowda","2026-05-09 10:00","2026-05-09 16:00","2026-05-09 10:10","2026-05-09 15:00","Closed","Both safety valves tested and reset to 10.5 and 11.0 kg/cm², witnessed by the boiler inspector.","Valve seat lapping compound","Certificate issued by the inspector.","Prakash Gowda"],
 ["WO-2026-00420","NT-2026-00370","Electrical","Deepak Yadav","2026-04-25 17:00","2026-04-26 13:00","2026-04-25 17:15","2026-04-26 11:50","Closed","Two capacitor step contactors replaced and the APFC controller re-programmed.","Contactor 63 A (2 nos.)","Power factor restored to 0.98.","Deepak Yadav"],
 ["WO-2026-00419","NT-2026-00369","Mechanical","Sanjay Bhosale","2026-04-10 10:00","2026-04-11 17:00","2026-04-10 10:20","2026-04-11 16:00","Closed","Burnt grate bars cut out and new cast bars fitted, furnace refractory patched around the grate.","Grate bars (14 nos.), refractory castable (50 kg)","Furnace fired after 24 hours of curing.","Sanjay Bhosale"],
+];
+
+// A handful of example spares so a demo (UI_ONLY) deploy has something to show
+// when the real store workbooks are not in data/. Not used by `npm run db:seed`.
+export const INVENTORY_SAMPLE = [
+  { source: "LOCAL", name: "BEARING 6205-2Z/C3", dept: "MAINTENANCE", category: "Mechanical", location: "RACK NO. 6 D", opening: 13, received: 20, issued: 16, reorderLevel: 4, fsn: "Slow Moving", avgMonthly: 1.7 },
+  { source: "LOCAL", name: "V-BELT B134", dept: "PARBOILING", category: "Mechanical", location: "STORE NO. 2", opening: 41, received: 0, issued: 4, reorderLevel: 5, fsn: "Slow Moving", avgMonthly: 0.7 },
+  { source: "LOCAL", name: "CONTACTOR - CHINT 230V 32A", dept: "ELECTRICAL", category: "Electrical", location: "RACK NO. 13 B", opening: 6, received: 4, issued: 5, reorderLevel: 4, fsn: "Slow Moving", avgMonthly: 0.8 },
+  { source: "LOCAL", name: "1 GANG SWITCH", dept: "ELECTRICAL", category: "Electrical", location: "ALMIRA 3 E", opening: 21, received: 0, issued: 0, reorderLevel: 5, fsn: "Non Moving", avgMonthly: 0 },
+  { source: "LOCAL", name: "AIR VALVE OIL/GAS 1.5\"", dept: "PLUMBING", category: "Plumbing", location: "RACK NO. 30 D", opening: 3, received: 0, issued: 2, reorderLevel: 2, fsn: "Slow Moving", avgMonthly: 0.3 },
+  { source: "LOCAL", name: "CUTTING DISC 9\"", dept: "MAINTENANCE", category: "Consumables", location: "", opening: 0, received: 75, issued: 75, reorderLevel: 20, fsn: "Fast Moving", avgMonthly: 9.4 },
+  { source: "IMPORTED", name: "WAGO-750-493", dept: "ELECTRICAL", category: "Control Panel", location: "RACK NO. 27 E", opening: 11, received: 0, issued: 0, reorderLevel: 2, fsn: "", avgMonthly: 0 },
+  { source: "IMPORTED", name: "VIBRATOR MOTOR BHL 10/700-UXM-46089-114", dept: "MILLING", category: "Pre-cleaning", location: "RACK NO. 58 B", opening: 2, received: 0, issued: 1, reorderLevel: 1, fsn: "", avgMonthly: 0 },
+  { source: "IMPORTED", name: "PROXIMITY SWITCH CAPACITIVE SENSOR UNE 26350-002", dept: "ELECTRICAL", category: "Sensor", location: "ALMIRA 1 E", opening: 8, received: 0, issued: 0, reorderLevel: 0, fsn: "", avgMonthly: 0 },
+  { source: "IMPORTED", name: "BEARING HOUSING INCL. SCREW-FaPr 4000078", dept: "MILLING", category: "SAP Grader", location: "RACK NO. 59 B", opening: 4, received: 0, issued: 0, reorderLevel: 1, fsn: "", avgMonthly: 0 },
+  { source: "IMPORTED", name: "GEARED MOTOR 0.75 KW 1400 RPM", dept: "MILLING", category: "Bagging Machine", location: "RACK NO. 26 B", opening: 1, received: 0, issued: 0, reorderLevel: 1, fsn: "", avgMonthly: 0 },
+  { source: "IMPORTED", name: "TENSION PULLEY ROSTA TYP R27 ST-UNN-62017-203", dept: "MILLING", category: "Elevator", location: "RACK NO. 76 E", opening: 0, received: 0, issued: 0, reorderLevel: 0, fsn: "", avgMonthly: 0 },
 ];

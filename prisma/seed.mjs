@@ -4,6 +4,8 @@
 import { PrismaClient } from "@prisma/client";
 import crypto from "node:crypto";
 import { DEPARTMENTS, NATURES, USERS, NT_SEED, WO_SEED, DEFAULT_PASSWORD, engineerOf } from "../src/lib/seedData.js";
+import { loadInventoryFromDir } from "../src/lib/inventoryFiles.js";
+import { nameKey } from "../src/lib/inventory.js";
 
 const prisma = new PrismaClient();
 
@@ -91,6 +93,17 @@ async function main() {
         createdById: userByName[eng].id, history,
       },
     });
+  }
+
+  // Store stock from the workbooks in data/ (skipped when there are none).
+  // Existing items are left alone; use Inventory → Import stock to update them.
+  const stock = loadInventoryFromDir();
+  if (stock.length) {
+    console.log(`Seeding ${stock.length} inventory items…`);
+    const res = await prisma.inventoryItem.createMany({ data: stock.map((i) => ({ ...i, nameKey: nameKey(i.name) })), skipDuplicates: true });
+    console.log(`  added ${res.count}`);
+  } else {
+    console.log("No store-stock workbooks in data/ — inventory left empty (use Inventory → Import stock).");
   }
 
   console.log("Done.");

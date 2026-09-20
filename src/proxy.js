@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { AUTH_COOKIE } from "@/lib/auth";
 import { parseSessionToken } from "@/lib/session";
-import { canAccessPage } from "@/lib/roles";
+import { canAccessPage, homeFor } from "@/lib/roles";
 import { isUiOnlyMode } from "@/lib/mode";
 
 const PUBLIC_PATHS = ["/login", "/api/login"];
@@ -27,11 +27,11 @@ export async function proxy(request) {
     return NextResponse.redirect(loginUrl);
   }
 
-  if (!canAccessPage(session.role, pathname)) {
+  if (!canAccessPage(session.role, pathname, session.dept)) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    return NextResponse.redirect(new URL("/", request.url));
+    return NextResponse.redirect(new URL(homeFor(session.role), request.url));
   }
 
   return NextResponse.next();

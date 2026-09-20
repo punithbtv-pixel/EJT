@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { PAGE_ACCESS, roleLabel } from "@/lib/roles";
+import { PAGE_ACCESS, roleLabel, canViewInventory } from "@/lib/roles";
 
 const ALL_LINKS = [
   { href: "/", label: "Dashboard" },
   { href: "/notifications", label: "Notifications" },
   { href: "/workorders", label: "Work Orders" },
+  { href: "/inventory", label: "Inventory" },
   { href: "/settings", label: "Settings" },
 ];
 
@@ -37,7 +38,10 @@ export default function NavBar() {
 
   if (pathname === "/login") return null;
 
-  const links = user ? ALL_LINKS.filter((l) => PAGE_ACCESS[l.href]?.includes(user.role)) : ALL_LINKS;
+  // Inventory depends on the department as well as the role (Electrical staff see it).
+  const links = user
+    ? ALL_LINKS.filter((l) => (l.href === "/inventory" ? canViewInventory(user.role, user.dept) : PAGE_ACCESS[l.href]?.includes(user.role)))
+    : ALL_LINKS;
 
   function isActive(l) {
     return l.href === "/" ? pathname === "/" : pathname.startsWith(l.href);
