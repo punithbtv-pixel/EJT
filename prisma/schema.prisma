@@ -35,13 +35,6 @@ model Department {
   active Boolean @default(true)
 }
 
-/// Job location master list (Milling, Boiler, Powerhouse, ...).
-model Location {
-  id     Int     @id @default(autoincrement())
-  name   String  @unique
-  active Boolean @default(true)
-}
-
 /// Nature-of-job master list (Breakdown, Preventive Maintenance, ...).
 model JobNature {
   id     Int     @id @default(autoincrement())
@@ -57,7 +50,7 @@ model Notification {
   date        DateTime @db.Date
   time        String // "HH:MM"
   dept        String
-  location    String
+  location    String // "Plant / Main Section / Sub-Section / Equipment" — see src/lib/locationTree.js
   job         String
   description String
   nature      String

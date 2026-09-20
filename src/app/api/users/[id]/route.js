@@ -43,7 +43,7 @@ export async function PATCH(request, { params }) {
   }
 }
 
-// DELETE /api/users/[id] -> remove a user account. Admin only.
+// DELETE /api/users/[id] -> remove a user account. Admin only, and never yourself.
 export async function DELETE(request, { params }) {
   const auth = await requireSession(ROLES.ADMIN);
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -62,8 +62,10 @@ export async function DELETE(request, { params }) {
     await deleteUser(id);
     return NextResponse.json({ ok: true });
   } catch (e) {
-    if (e.code === "IN_USE") return NextResponse.json({ error: e.message }, { status: 409 });
+    if (e.code === "P2003" || e.code === "P2014") {
+      return NextResponse.json({ error: "Can't remove — this user has raised notifications or been assigned work orders. Deactivate instead." }, { status: 400 });
+    }
     console.error("DELETE /api/users/[id] failed:", e);
-    return NextResponse.json({ error: "Could not delete user" }, { status: 500 });
+    return NextResponse.json({ error: "Could not remove user" }, { status: 500 });
   }
 }

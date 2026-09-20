@@ -49,7 +49,7 @@ export default function WorkOrderDetailPage({ params }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(null);
-  const [lists, setLists] = useState({ departments: [], locations: [], natures: [], users: [] });
+  const [lists, setLists] = useState({ departments: [], natures: [], users: [] });
 
   function load() {
     return fetchWorkOrder(id).then(setW);
@@ -92,11 +92,10 @@ export default function WorkOrderDetailPage({ params }) {
     setEditing(true);
     Promise.all([
       fetch("/api/departments").then((r) => r.json()),
-      fetch("/api/locations").then((r) => r.json()),
       fetch("/api/natures").then((r) => r.json()),
       fetch("/api/users").then((r) => r.json()),
-    ]).then(([d, l, na, u]) => setLists({
-      departments: d.departments || [], locations: l.locations || [], natures: na.natures || [],
+    ]).then(([d, na, u]) => setLists({
+      departments: d.departments || [], natures: na.natures || [],
       users: (u.users || []).filter((x) => x.active),
     })).catch(() => {});
   }
@@ -182,9 +181,7 @@ export default function WorkOrderDetailPage({ params }) {
                 </select>
               </Field>
               <Field label="Job location" required>
-                <select className={inputClass} value={form.location} onChange={set("location")}>
-                  {opts(lists.locations.map((x) => x.name), form.location).map((x) => (<option key={x} value={x}>{x}</option>))}
-                </select>
+                <input className={inputClass} value={form.location} onChange={set("location")} />
               </Field>
               <Field label="Nature of job" required>
                 <select className={inputClass} value={form.nature} onChange={set("nature")}>

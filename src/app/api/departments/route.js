@@ -42,13 +42,22 @@ export async function DELETE(request) {
   const auth = await requireSession(ROLES.ADMIN);
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-  const id = new URL(request.url).searchParams.get("id");
+  const body = await request.json().catch(() => ({}));
+  const { id } = body || {};
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+
+  const departments = await listDepartments();
+  const dept = departments.find((d) => d.id === Number(id));
+  if (!dept) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (dept.inUse > 0) {
+    return NextResponse.json({ error: `In use by ${dept.inUse} record${dept.inUse === 1 ? "" : "s"} — deactivate instead of removing.` }, { status: 400 });
+  }
 
   try {
     await deleteDepartment(id);
     return NextResponse.json({ ok: true });
-  } catch {
-    return NextResponse.json({ error: "Could not delete department" }, { status: 500 });
+  } catch (e) {
+    console.error("DELETE /api/departments failed:", e);
+    return NextResponse.json({ error: "Could not remove department" }, { status: 500 });
   }
 }

@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/apiAuth";
-import { can } from "@/lib/roles";
+import { can, ROLES } from "@/lib/roles";
 import { isUiOnlyMode } from "@/lib/mode";
 import {
   getWorkOrderByNo, findUserByUsername,
   assignWorkOrder, startWorkOrder, holdWorkOrder, resumeWorkOrder, completeWorkOrder, closeWorkOrder, cancelWorkOrder,
-  updateWorkOrder, deleteWorkOrder,
+  updateWorkOrder, editWorkOrder, deleteWorkOrder,
 } from "@/lib/store";
 import { PRIORITIES, WO_STATUSES } from "@/lib/constants";
+
+const LOCKED = ["Completed", "Closed"];
 
 async function sessionUser(session) {
   if (isUiOnlyMode()) return { id: 0, name: session.name };
@@ -46,10 +48,13 @@ export async function PATCH(request, { params }) {
   const action = body?.action;
 
   try {
-    // Admin full edit of every field.
-    if (action === "edit") {
+    // "edit" covers two different affordances, told apart by body shape:
+    // an admin's full-field override (body.fields, unrestricted by status),
+    // and a lighter admin quick-correction (job/priority/assignedToName,
+    // blocked once completed/closed).
+    if (action === "edit" && body.fields) {
       if (!can(auth.session.role, "manageAll")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      const f = body.fields || {};
+      const f = body.fields;
       for (const k of ["dept", "location", "job", "description", "nature", "plannedStart", "plannedEnd"]) {
         if (!String(f[k] ?? "").trim()) return NextResponse.json({ error: "Required fields are missing" }, { status: 400 });
       }
@@ -90,6 +95,32 @@ export async function PATCH(request, { params }) {
       if (!can(auth.session.role, "close")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       return NextResponse.json({ workOrder: await cancelWorkOrder(id, user.name) });
     }
+    if (action === "edit") {
+      if (auth.session.role !== ROLES.ADMIN) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      if (LOCKED.includes(existing.status)) {
+        return NextResponse.json({ error: "This work order is locked — it is already completed or closed." }, { status: 400 });
+      }
+      const patch = {};
+      if (typeof body.job === "string" && body.job.trim()) patch.job = body.job.trim();
+      if (typeof body.priority === "string") patch.priority = body.priority;
+      if (body.assignedToName !== undefined) patch.assignedToName = body.assignedToName || null;
+      if (Object.keys(patch).length === 0) return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
+      const workOrder = await editWorkOrder(id, patch, user.name);
+      return NextResponse.json({ workOrder });
+    }
+    if (action === "edit") {
+      if (auth.session.role !== ROLES.ADMIN) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      if (LOCKED.includes(existing.status)) {
+        return NextResponse.json({ error: "This work order is locked — it is already completed or closed." }, { status: 400 });
+      }
+      const patch = {};
+      if (typeof body.job === "string" && body.job.trim()) patch.job = body.job.trim();
+      if (typeof body.priority === "string") patch.priority = body.priority;
+      if (body.assignedToName !== undefined) patch.assignedToName = body.assignedToName || null;
+      if (Object.keys(patch).length === 0) return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
+      const workOrder = await editWorkOrder(id, patch, user.name);
+      return NextResponse.json({ workOrder });
+    }
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (e) {
     console.error("PATCH /api/workorders/[id] failed:", e);
@@ -97,22 +128,24 @@ export async function PATCH(request, { params }) {
   }
 }
 
-// Admin only: delete a work order; its notification returns to "Accepted".
+// DELETE /api/workorders/[id] -> remove a work order. Administrator only,
+// unrestricted by status — the one place a completed/closed work order can
+// still be removed. Reverts the source notification to Accepted, same as
+// cancelling one.
 export async function DELETE(request, { params }) {
-  const auth = await requireSession();
+  const auth = await requireSession(ROLES.ADMIN);
   if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
-  if (!can(auth.session.role, "manageAll")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
 
   const { id } = await params;
+  const existing = await getWorkOrderByNo(id);
+  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const user = await sessionUser(auth.session);
   try {
-    const user = await sessionUser(auth.session);
     await deleteWorkOrder(id, user.name);
     return NextResponse.json({ ok: true });
   } catch (e) {
-    if (e.message === "Not found") return NextResponse.json({ error: "Not found" }, { status: 404 });
     console.error("DELETE /api/workorders/[id] failed:", e);
-    return NextResponse.json({ error: "Could not delete work order" }, { status: 500 });
+    return NextResponse.json({ error: "Could not remove work order" }, { status: 500 });
   }
 }

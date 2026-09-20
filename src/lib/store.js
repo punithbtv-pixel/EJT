@@ -11,10 +11,22 @@ function nowISO() {
   return new Date().toISOString().slice(0, 16).replace("T", " ");
 }
 
-// ── Departments / Locations / Job Natures (simple master lists) ───────────
+// ── Departments / Job Natures (simple master lists) ────────────────────────
 export async function listDepartments() {
-  if (isUiOnlyMode()) return (await getDB()).departments;
-  return prisma.department.findMany({ orderBy: { name: "asc" } });
+  if (isUiOnlyMode()) {
+    const db = await getDB();
+    return db.departments.map((d) => ({
+      ...d,
+      inUse: db.notifications.filter((n) => n.dept === d.name).length + db.workOrders.filter((w) => w.dept === d.name).length,
+    }));
+  }
+  const departments = await prisma.department.findMany({ orderBy: { name: "asc" } });
+  const counts = await Promise.all(
+    departments.map((d) =>
+      Promise.all([prisma.notification.count({ where: { dept: d.name } }), prisma.workOrder.count({ where: { dept: d.name } })])
+    )
+  );
+  return departments.map((d, i) => ({ ...d, inUse: counts[i][0] + counts[i][1] }));
 }
 export async function addDepartment({ name, notif = true, work = true }) {
   if (isUiOnlyMode()) {
@@ -38,42 +50,12 @@ export async function updateDepartment(id, patch) {
 export async function deleteDepartment(id) {
   if (isUiOnlyMode()) {
     const db = await getDB();
-    db.departments = db.departments.filter((d) => d.id !== Number(id));
+    const idx = db.departments.findIndex((d) => d.id === Number(id));
+    if (idx === -1) throw new Error("Not found");
+    db.departments.splice(idx, 1);
     return;
   }
   await prisma.department.delete({ where: { id: Number(id) } });
-}
-
-export async function listLocations() {
-  if (isUiOnlyMode()) return (await getDB()).locations;
-  return prisma.location.findMany({ orderBy: { name: "asc" } });
-}
-export async function addLocation({ name }) {
-  if (isUiOnlyMode()) {
-    const db = await getDB();
-    const row = { id: ++db.seq.loc, name, active: true };
-    db.locations.push(row);
-    return row;
-  }
-  return prisma.location.create({ data: { name } });
-}
-export async function updateLocation(id, patch) {
-  if (isUiOnlyMode()) {
-    const db = await getDB();
-    const row = db.locations.find((l) => l.id === Number(id));
-    if (!row) throw new Error("Not found");
-    Object.assign(row, patch);
-    return row;
-  }
-  return prisma.location.update({ where: { id: Number(id) }, data: patch });
-}
-export async function deleteLocation(id) {
-  if (isUiOnlyMode()) {
-    const db = await getDB();
-    db.locations = db.locations.filter((l) => l.id !== Number(id));
-    return;
-  }
-  await prisma.location.delete({ where: { id: Number(id) } });
 }
 
 export async function listNatures() {
@@ -161,16 +143,12 @@ export async function updateUser(id, patch) {
 export async function deleteUser(id) {
   if (isUiOnlyMode()) {
     const db = await getDB();
-    db.users = db.users.filter((u) => u.id !== Number(id));
+    const idx = db.users.findIndex((u) => u.id === Number(id));
+    if (idx === -1) throw new Error("Not found");
+    db.users.splice(idx, 1);
     return;
   }
-  try {
-    await prisma.user.delete({ where: { id: Number(id) } });
-  } catch (e) {
-    // FK violation: the user has raised notifications or holds work orders.
-    if (e.code === "P2003") { const err = new Error("This user has notifications or work orders on record. Deactivate them instead."); err.code = "IN_USE"; throw err; }
-    throw e;
-  }
+  await prisma.user.delete({ where: { id: Number(id) } });
 }
 
 // ── Notifications ───────────────────────────────────────────────────────
@@ -261,12 +239,14 @@ export async function setNotificationStatus(no, status, who) {
   return normNotif(updated, null);
 }
 
-// Admin: edit any field of a notification, whatever its status.
+// Full-field edit. Called by an administrator (any field, any status) and by
+// the person who raised the notification (the API route restricts their
+// patch to { job, priority } and blocks it once converted/closed).
 const NOTIF_EDITABLE = ["dept", "location", "job", "description", "nature", "priority", "status"];
 export async function updateNotification(no, patch, who) {
   const data = {};
   for (const k of NOTIF_EDITABLE) if (patch[k] !== undefined) data[k] = patch[k];
-  const text = "Notification edited by administrator.";
+  const text = "Notification edited.";
   if (isUiOnlyMode()) {
     const db = await getDB();
     const n = db.notifications.find((x) => x.no === no);
@@ -282,7 +262,11 @@ export async function updateNotification(no, patch, who) {
   return normNotif({ ...updated, workOrderNo: updated.workOrder?.no }, null);
 }
 
-// Admin: delete a notification together with the work order raised from it.
+// Deletes a notification together with any work order raised from it, so an
+// administrator can remove one at any status without hitting the foreign-key
+// constraint on WorkOrder.notificationId. (The API route only lets a
+// non-admin owner delete a notification that hasn't been converted yet, so
+// there's nothing to cascade in that case.)
 export async function deleteNotification(no) {
   if (isUiOnlyMode()) {
     const db = await getDB();
@@ -531,7 +515,8 @@ export async function cancelWorkOrder(no, who) {
   return updated;
 }
 
-// Admin: edit any field of a work order, whatever its status.
+// Full-field edit, administrator only, unrestricted by status — the one
+// place a completed/closed work order can still be corrected.
 const WO_EDITABLE = ["dept", "location", "job", "description", "nature", "priority", "status", "workDone", "spares", "remarks"];
 const WO_DATES = ["plannedStart", "plannedEnd", "actualStart", "actualEnd"];
 function parseStamp(s) {
@@ -568,9 +553,39 @@ export async function updateWorkOrder(no, patch, who) {
   return { ...updated, assignedToName };
 }
 
-// Admin: delete a work order and return its notification to "Accepted".
+// Light edit — { job, priority, assignedToName } only, a quick correction
+// kept separate from the assign/start/hold/.../close lifecycle above. The API
+// route gates this to the administrator and blocks it once completed/closed.
+export async function editWorkOrder(no, patch, who) {
+  const text = "Work order edited.";
+  if (isUiOnlyMode()) {
+    const { db, w } = await getWOMock(no);
+    if (patch.job !== undefined) w.job = patch.job;
+    if (patch.priority !== undefined) w.priority = patch.priority;
+    if (patch.assignedToName !== undefined) {
+      w.assignedToName = patch.assignedToName || null;
+      w.assignedToId = patch.assignedToName ? (db.users.find((u) => u.name === patch.assignedToName)?.id ?? null) : null;
+    }
+    w.history = withHistory(w.history, who, text);
+    return finishMock(w, db);
+  }
+  const before = await prisma.workOrder.findUnique({ where: { no } });
+  if (!before) throw new Error("Not found");
+  const data = { history: withHistory(before.history, who, text) };
+  if (patch.job !== undefined) data.job = patch.job;
+  if (patch.priority !== undefined) data.priority = patch.priority;
+  if (patch.assignedToName !== undefined) {
+    const assignedUser = patch.assignedToName ? await prisma.user.findFirst({ where: { name: patch.assignedToName } }) : null;
+    data.assignedToId = assignedUser?.id ?? null;
+  }
+  const { updated } = await finishPrisma(no, data);
+  return patch.assignedToName !== undefined ? { ...updated, assignedToName: patch.assignedToName || null } : updated;
+}
+
+// Administrator only, unrestricted by status. Returns the source notification
+// to "Accepted", same as cancelling one.
 export async function deleteWorkOrder(no, who) {
-  const text = `Work order ${no} deleted by administrator — notification returned to accepted.`;
+  const text = `Work order ${no} removed — notification returned to accepted.`;
   if (isUiOnlyMode()) {
     const { db, w } = await getWOMock(no);
     db.workOrders = db.workOrders.filter((x) => x !== w);

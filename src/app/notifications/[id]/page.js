@@ -41,7 +41,7 @@ export default function NotificationDetailPage({ params }) {
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(null);
-  const [lists, setLists] = useState({ departments: [], locations: [], natures: [] });
+  const [lists, setLists] = useState({ departments: [], natures: [] });
 
   function load() {
     return fetchNotification(id).then(setN);
@@ -71,9 +71,8 @@ export default function NotificationDetailPage({ params }) {
     setEditing(true);
     Promise.all([
       fetch("/api/departments").then((r) => r.json()),
-      fetch("/api/locations").then((r) => r.json()),
       fetch("/api/natures").then((r) => r.json()),
-    ]).then(([d, l, na]) => setLists({ departments: d.departments || [], locations: l.locations || [], natures: na.natures || [] })).catch(() => {});
+    ]).then(([d, na]) => setLists({ departments: d.departments || [], natures: na.natures || [] })).catch(() => {});
   }
 
   function set(key) {
@@ -162,9 +161,7 @@ export default function NotificationDetailPage({ params }) {
                 </select>
               </Field>
               <Field label="Location" required>
-                <select className={inputClass} value={form.location} onChange={set("location")}>
-                  {opts(lists.locations, form.location).map((x) => (<option key={x} value={x}>{x}</option>))}
-                </select>
+                <input className={inputClass} value={form.location} onChange={set("location")} />
               </Field>
               <Field label="Nature of job" required>
                 <select className={inputClass} value={form.nature} onChange={set("nature")}>
