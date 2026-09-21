@@ -47,6 +47,16 @@ strictly below — each list keeps the rule its sheet used) and *Out* at zero.
   saves when you confirm. Items are matched by name; items missing from the file
   are never deleted, and a blank location/department/category never
   overwrites what is saved.
+- **Issuance** (Admin and Stores) records an issuance slip: a hand-typed slip
+  number (unique, case-insensitive), issued date & time, one or more spares with
+  quantities, issued by / to, department, authorised by, and where they will be
+  used (Plant → Main section → Sub-section → Equipment). Saving adds each
+  quantity to the spare's *Issued* total. Issuing more than is in stock is
+  refused. **Top-up** records a vendor delivery (received date & time, vendor,
+  invoice number, one or more spares) and adds to *Received*. Each row also has
+  **Issue** / **Top-up** shortcuts, and *Recent movements* lists every record.
+  Records live in the `StockMovement` / `StockMovementLine` tables, so after
+  pulling this change run `npx prisma generate` and `npm run db:push`.
 - **Export to Excel** downloads whatever is currently filtered; the same file
   can be edited and imported back.
 - The real workbooks are **not committed** (`/data/*ITEMS*.xlsx` is in

@@ -103,3 +103,77 @@ export const EXPORT_COLUMNS = [
   { key: "fsn", header: "Movement" },
   { key: "avgMonthly", header: "Avg issued / month" },
 ];
+
+// ── Stock movements: issuance slips and top-ups ─────────────────────────
+// An issuance slip takes spares out of the store; a top-up brings them in. Each
+// carries one or more spare lines. Issuing adds to an item's Issued total, a
+// top-up adds to Received, so the balance stays opening + received − issued.
+
+export const MOVEMENT = { ISSUE: "ISSUE", TOPUP: "TOPUP" };
+
+// Slip numbers are typed by hand; "is-0418" and "IS-0418" are the same slip.
+export const slipKey = (slipNo) => text(slipNo, 40).toUpperCase();
+
+function cleanLines(raw) {
+  return (Array.isArray(raw) ? raw : []).map((l) => ({ itemId: Number(l?.itemId), qty: qty(l?.qty) }));
+}
+
+function cleanWhen(v) {
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString();
+}
+
+export function cleanIssue(raw = {}) {
+  return {
+    slipNo: text(raw.slipNo, 40),
+    when: cleanWhen(raw.when),
+    lines: cleanLines(raw.lines),
+    issuedBy: text(raw.issuedBy, 80),
+    issuedTo: text(raw.issuedTo, 80),
+    dept: text(raw.dept, 80),
+    authorisedBy: text(raw.authorisedBy, 80),
+    location: text(raw.location, 300),
+  };
+}
+
+export function cleanTopUp(raw = {}) {
+  return {
+    when: cleanWhen(raw.when),
+    lines: cleanLines(raw.lines),
+    vendor: text(raw.vendor, 120),
+    invoiceNo: text(raw.invoiceNo, 60),
+  };
+}
+
+function lineProblem(lines) {
+  if (!lines.length) return "Add at least one spare.";
+  const seen = new Set();
+  for (const [i, l] of lines.entries()) {
+    const tag = lines.length > 1 ? `Spare ${i + 1}: ` : "";
+    if (!Number.isInteger(l.itemId) || l.itemId <= 0) return `${tag}pick the spare from the list.`;
+    if (!l.qty) return `${tag}enter the quantity.`;
+    if (seen.has(l.itemId)) return "The same spare is listed twice. Combine it into one line.";
+    seen.add(l.itemId);
+  }
+  return null;
+}
+
+// Each returns a message when the record can't be saved, otherwise null.
+export function validateIssue(m) {
+  if (!m.slipNo) return "Enter the issuance slip number.";
+  if (!m.when) return "Enter the date and time it was issued.";
+  return (
+    lineProblem(m.lines) ||
+    (!m.issuedBy && "Enter who issued it.") ||
+    (!m.issuedTo && "Enter who it is issued to.") ||
+    (!m.dept && "Choose the department.") ||
+    (!m.authorisedBy && "Enter who authorised it.") ||
+    (!m.location && "Choose where the spares will be used.") ||
+    null
+  );
+}
+
+export function validateTopUp(m) {
+  if (!m.when) return "Enter the date and time it was received.";
+  return lineProblem(m.lines) || (!m.vendor && "Enter the vendor it came from.") || (!m.invoiceNo && "Enter the invoice number.") || null;
+}

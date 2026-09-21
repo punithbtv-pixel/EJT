@@ -5,6 +5,8 @@ import { Panel, EmptyState, Btn, IconBtn, IconEdit, IconDownload, Modal } from "
 import StockPill from "@/components/inventory/StockPill";
 import ItemForm from "@/components/inventory/ItemForm";
 import ImportDialog from "@/components/inventory/ImportDialog";
+import StockMovementForm from "@/components/inventory/StockMovementForm";
+import MovementsPanel from "@/components/inventory/MovementsPanel";
 import { can } from "@/lib/roles";
 import { EXPORT_COLUMNS, SOURCE_LABEL, STATUS_LABEL, titleCase } from "@/lib/inventory";
 import { exportToExcel } from "@/lib/exportExcel";
@@ -92,6 +94,8 @@ export default function InventoryPage() {
   const [form, setForm] = useState(null); // { item } — item null = add
   const [deleting, setDeleting] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [move, setMove] = useState(null); // { kind: "issue" | "topup", preset } — the open issuance / top-up pop-up
+  const [movements, setMovements] = useState([]);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState("");
   const search = useRef(null);
@@ -99,6 +103,7 @@ export default function InventoryPage() {
   useEffect(() => {
     fetchItems().then(setItems).catch(() => setLoadError(true));
     fetch("/api/me").then((r) => r.json()).then((d) => setMe(d.user)).catch(() => {});
+    fetch("/api/inventory/movements").then((r) => (r.ok ? r.json() : { movements: [] })).then((d) => setMovements(d.movements)).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -210,6 +215,16 @@ export default function InventoryPage() {
     }
   }
 
+  // An issuance slip or top-up was saved: show the new stock and add it to the movements list.
+  function onMoved({ movement, items: updated }, kind) {
+    const byId = new Map(updated.map((i) => [i.id, i]));
+    setItems((prev) => prev.map((i) => byId.get(i.id) || i));
+    setMovements((prev) => [movement, ...prev]);
+    setMove(null);
+    const n = movement.lines.length;
+    notify(kind === "issue" ? `Slip ${movement.slipNo} saved. ${n} ${n === 1 ? "spare" : "spares"} issued and stock updated.` : `Invoice ${movement.invoiceNo} saved. ${n} ${n === 1 ? "spare" : "spares"} added and stock updated.`);
+  }
+
   async function remove() {
     setBusy(true);
     const res = await fetch(`/api/inventory/${deleting.id}`, { method: "DELETE" });
@@ -258,6 +273,8 @@ export default function InventoryPage() {
         </div>
         <div className="flex-1" />
         {canManage && <Btn variant="primary" onClick={() => setForm({ item: null })}>+ Add spare</Btn>}
+        {canManage && <Btn className="!border-amber-500 !bg-amber-50 !text-amber-900 hover:!bg-amber-100" onClick={() => setMove({ kind: "issue", preset: null })}>Issuance</Btn>}
+        {canManage && <Btn className="!border-emerald-600 !bg-emerald-50 !text-emerald-900 hover:!bg-emerald-100" onClick={() => setMove({ kind: "topup", preset: null })}>Top-up</Btn>}
         {canImport && <Btn onClick={() => setImporting(true)}>Import stock</Btn>}
         <Btn onClick={doExport} disabled={results.length === 0}><IconDownload /> Export to Excel</Btn>
       </div>
@@ -406,8 +423,12 @@ export default function InventoryPage() {
                     </td>
                     <td className="px-4 py-2.5 text-right text-xs text-slate-500 tabular-nums hidden md:table-cell">{i.reorderLevel ? fmt(i.reorderLevel) : "—"}</td>
                     {canManage && (
-                      <td className="px-2 py-2.5" onClick={(e) => e.stopPropagation()}>
-                        <IconBtn title="Edit spare" onClick={() => setForm({ item: i })}><IconEdit /></IconBtn>
+                      <td className="px-2 py-2.5 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-1">
+                          <button type="button" onClick={() => setMove({ kind: "issue", preset: i })} className="rounded-md border border-amber-300 text-amber-800 hover:bg-amber-50 text-xs font-semibold px-2 h-7">Issue</button>
+                          <button type="button" onClick={() => setMove({ kind: "topup", preset: i })} className="rounded-md border border-emerald-300 text-emerald-800 hover:bg-emerald-50 text-xs font-semibold px-2 h-7">Top-up</button>
+                          <IconBtn title="Edit spare" onClick={() => setForm({ item: i })}><IconEdit /></IconBtn>
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -424,6 +445,8 @@ export default function InventoryPage() {
           </div>
         )}
       </Panel>
+
+      <MovementsPanel movements={movements} />
 
       {selected && (
         <>
@@ -496,6 +519,8 @@ export default function InventoryPage() {
           </div>
         </Modal>
       )}
+
+      {move && <StockMovementForm kind={move.kind} items={items} preset={move.preset} lists={lists} onClose={() => setMove(null)} onSaved={onMoved} />}
 
       {importing && <ImportDialog onClose={() => setImporting(false)} onDone={importDone} />}
 

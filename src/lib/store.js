@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { getDB, nextNo, nowStamp } from "@/lib/mockStore";
 import { engineerOf } from "@/lib/seedData";
 import { WO_OPEN } from "@/lib/constants";
-import { balanceOf, stockStatus, nameKey, importChanges } from "@/lib/inventory";
+import { balanceOf, stockStatus, nameKey, importChanges, slipKey, MOVEMENT } from "@/lib/inventory";
 
 function nowISO() {
   return new Date().toISOString().slice(0, 16).replace("T", " ");
@@ -745,5 +745,94 @@ export async function applyInventoryImport(plan) {
         prisma.inventoryItem.update({ where: { id: u.id }, data: Object.fromEntries(u.changes.map((c) => [c.field, c.to])) }),
       ),
     );
+  }
+}
+
+// ── Stock movements (issuance slips and top-ups) ─────────────────────────
+const r3 = (n) => Math.round(n * 1000) / 1000;
+
+function normMove(r) {
+  return {
+    id: r.id, kind: r.kind, slipNo: r.slipNo || "", when: new Date(r.when ?? r.occurredAt).toISOString(),
+    issuedBy: r.issuedBy || "", issuedTo: r.issuedTo || "", dept: r.dept || "", authorisedBy: r.authorisedBy || "", location: r.location || "",
+    vendor: r.vendor || "", invoiceNo: r.invoiceNo || "", recordedBy: r.recordedBy || "",
+    lines: r.lines.map((l) => ({ itemId: l.itemId, name: l.itemName ?? l.name, qty: l.qty })),
+  };
+}
+function moveError(code, message) {
+  const err = new Error(message);
+  err.code = code;
+  return err;
+}
+// The message for the first line the store can't cover, or null. Only issuing can run short.
+function shortLine(kind, lines, rows) {
+  if (kind !== MOVEMENT.ISSUE) return null;
+  for (const l of lines) {
+    const row = rows.get(l.itemId);
+    const bal = balanceOf(row);
+    if (l.qty > bal) return `Only ${bal} of “${row.name}” is in stock. Lower the quantity.`;
+  }
+  return null;
+}
+
+export async function listMovements(limit = 30) {
+  if (isUiOnlyMode()) {
+    const db = await getDB();
+    return [...db.movements].sort((a, b) => b.id - a.id).slice(0, limit).map(normMove);
+  }
+  const rows = await prisma.stockMovement.findMany({ orderBy: [{ occurredAt: "desc" }, { id: "desc" }], take: limit, include: { lines: true } });
+  return rows.map(normMove);
+}
+
+// Saves an issuance slip (kind ISSUE) or a top-up (kind TOPUP) and adds each line to
+// the item's issued / received total. `input` is already cleaned and validated (see
+// lib/inventory.js). Returns { movement, items } with the updated stock rows.
+export async function recordMovement(kind, input, recordedBy) {
+  const field = kind === MOVEMENT.ISSUE ? "issued" : "received";
+  const key = kind === MOVEMENT.ISSUE ? slipKey(input.slipNo) : null;
+  const fields = {
+    kind, slipNo: kind === MOVEMENT.ISSUE ? input.slipNo : "", slipKey: key, recordedBy: recordedBy || "",
+    issuedBy: input.issuedBy || "", issuedTo: input.issuedTo || "", dept: input.dept || "", authorisedBy: input.authorisedBy || "", location: input.location || "",
+    vendor: input.vendor || "", invoiceNo: input.invoiceNo || "",
+  };
+  const dupSlip = () => moveError("DUP", `Slip ${input.slipNo} is already recorded. Check the number on the slip.`);
+  const gone = () => moveError("NOT_FOUND", "A spare on this list no longer exists. Reload the page and try again.");
+
+  if (isUiOnlyMode()) {
+    const db = await getDB();
+    if (key && db.movements.some((r) => r.kind === kind && r.slipKey === key)) throw dupSlip();
+    const rows = new Map(input.lines.map((l) => [l.itemId, db.inventory.find((r) => r.id === l.itemId)]));
+    if ([...rows.values()].some((r) => !r)) throw gone();
+    const short = shortLine(kind, input.lines, rows);
+    if (short) throw moveError("SHORT", short);
+    for (const l of input.lines) rows.get(l.itemId)[field] = r3(rows.get(l.itemId)[field] + l.qty);
+    const row = { id: ++db.seq.mov, ...fields, when: input.when, lines: input.lines.map((l) => ({ itemId: l.itemId, name: rows.get(l.itemId).name, qty: l.qty })) };
+    db.movements.push(row);
+    return { movement: normMove(row), items: input.lines.map((l) => normInv(rows.get(l.itemId))) };
+  }
+
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const ids = input.lines.map((l) => l.itemId);
+      const rows = new Map((await tx.inventoryItem.findMany({ where: { id: { in: ids } } })).map((r) => [r.id, r]));
+      if (ids.some((id) => !rows.has(id))) throw gone();
+      const short = shortLine(kind, input.lines, rows);
+      if (short) throw moveError("SHORT", short);
+      for (const l of input.lines) {
+        await tx.inventoryItem.update({ where: { id: l.itemId }, data: { [field]: { increment: l.qty } } });
+      }
+      const saved = await tx.stockMovement.create({
+        data: {
+          ...fields, occurredAt: new Date(input.when),
+          lines: { create: input.lines.map((l) => ({ itemId: l.itemId, itemName: rows.get(l.itemId).name, qty: l.qty })) },
+        },
+        include: { lines: true },
+      });
+      const fresh = await tx.inventoryItem.findMany({ where: { id: { in: ids } } });
+      return { movement: normMove(saved), items: fresh.map(normInv) };
+    });
+  } catch (e) {
+    if (e.code === "P2002") throw dupSlip();
+    throw e;
   }
 }

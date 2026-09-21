@@ -72,13 +72,14 @@ async function build() {
   }
 
   return {
-    seq: { nt: 412, wo: 458, user: users.length, dept: DEPARTMENTS.length, nat: NATURES.length, inv: inventory.length },
+    seq: { nt: 412, wo: 458, user: users.length, dept: DEPARTMENTS.length, nat: NATURES.length, inv: inventory.length, mov: 0 },
     departments: DEPARTMENTS.map((d, i) => ({ id: i + 1, ...d })),
     natures: NATURES.map((n, i) => ({ id: i + 1, ...n })),
     users,
     notifications,
     workOrders,
     inventory,
+    movements: [],
   };
 }
 

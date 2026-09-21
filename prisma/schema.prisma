@@ -132,3 +132,41 @@ model InventoryItem {
   @@index([dept])
   @@index([location])
 }
+
+/// One issuance slip (spares out of the store) or one top-up (spares in from a
+/// vendor). Saving it adds each line to the item's issued / received total.
+model StockMovement {
+  id           Int      @id @default(autoincrement())
+  kind         String // ISSUE | TOPUP
+  slipNo       String   @default("") // issuance slip number, typed by hand
+  slipKey      String? // upper-cased slipNo for ISSUE rows, null for TOPUP: keeps slip numbers unique
+  occurredAt   DateTime // issued / received date and time, entered by hand
+  issuedBy     String   @default("")
+  issuedTo     String   @default("")
+  dept         String   @default("")
+  authorisedBy String   @default("")
+  location     String   @default("") // "Plant / Main Section / Sub-Section / Equipment"
+  vendor       String   @default("")
+  invoiceNo    String   @default("")
+  recordedBy   String   @default("") // who saved it in the app
+  createdAt    DateTime @default(now())
+
+  lines StockMovementLine[]
+
+  @@unique([kind, slipKey])
+  @@index([occurredAt])
+}
+
+/// A spare on a movement. The name is copied so the record still reads right if the item is later renamed or deleted.
+model StockMovementLine {
+  id         Int    @id @default(autoincrement())
+  movementId Int
+  itemId     Int
+  itemName   String
+  qty        Float
+
+  movement StockMovement @relation(fields: [movementId], references: [id], onDelete: Cascade)
+
+  @@index([movementId])
+  @@index([itemId])
+}
