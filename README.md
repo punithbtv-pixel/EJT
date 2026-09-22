@@ -58,7 +58,10 @@ strictly below — each list keeps the rule its sheet used) and *Out* at zero.
   Records live in the `StockMovement` / `StockMovementLine` tables, so after
   pulling this change run `npx prisma generate` and `npm run db:push`.
 - **Export to Excel** downloads whatever is currently filtered; the same file
-  can be edited and imported back.
+  can be edited and imported back. A **▾** next to it opens **Issuance** and
+  **Top Up** report filters (date range, spare, and for Issuance also slip
+  no., plant/section/sub-section/equipment, department and issued to; for
+  Top Up also vendor). The matching rows are shown before anything downloads.
 - The real workbooks are **not committed** (`/data/*ITEMS*.xlsx` is in
   `.gitignore`). Put them in `data/` and `npm run db:seed` loads them, or use
   **Import stock** in the app. With no workbooks, UI-only mode shows a small

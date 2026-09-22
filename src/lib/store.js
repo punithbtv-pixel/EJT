@@ -836,3 +836,57 @@ export async function recordMovement(kind, input, recordedBy) {
     throw e;
   }
 }
+
+// Flattened movement lines for the Issuance / Top Up report export — one row
+// per spare, most recent first. `filters` narrows what's returned; every
+// filter is optional. `location` is a composed prefix (see composeLocation in
+// lib/locationTree.js) — a spare used anywhere under it matches.
+export async function reportMovementLines(kind, filters = {}) {
+  const { from, to, spare, slipNo, dept, issuedTo, location, vendor } = filters;
+  const spareQ = (spare || "").trim().toLowerCase();
+  const has = (v, q) => String(v || "").toLowerCase().includes(q.toLowerCase());
+  const rows = [];
+
+  if (isUiOnlyMode()) {
+    const db = await getDB();
+    for (const m of db.movements) {
+      if (m.kind !== kind) continue;
+      const day = new Date(m.when ?? m.occurredAt).toISOString().slice(0, 10);
+      if (from && day < from) continue;
+      if (to && day > to) continue;
+      if (kind === MOVEMENT.ISSUE) {
+        if (slipNo && !has(m.slipNo, slipNo)) continue;
+        if (dept && m.dept !== dept) continue;
+        if (issuedTo && !has(m.issuedTo, issuedTo)) continue;
+        if (location && !String(m.location || "").startsWith(location)) continue;
+      } else if (vendor && !has(m.vendor, vendor)) continue;
+      for (const l of m.lines) {
+        if (spareQ && !has(l.name, spareQ)) continue;
+        rows.push({ when: m.when, slipNo: m.slipNo, invoiceNo: m.invoiceNo, spare: l.name, qty: l.qty, issuedBy: m.issuedBy, issuedTo: m.issuedTo, dept: m.dept, authorisedBy: m.authorisedBy, location: m.location, vendor: m.vendor });
+      }
+    }
+  } else {
+    const where = { kind };
+    if (from || to) where.occurredAt = { ...(from ? { gte: new Date(`${from}T00:00:00.000Z`) } : {}), ...(to ? { lte: new Date(`${to}T23:59:59.999Z`) } : {}) };
+    if (kind === MOVEMENT.ISSUE) {
+      if (slipNo) where.slipNo = { contains: slipNo, mode: "insensitive" };
+      if (dept) where.dept = dept;
+      if (issuedTo) where.issuedTo = { contains: issuedTo, mode: "insensitive" };
+      if (location) where.location = { startsWith: location };
+    } else if (vendor) {
+      where.vendor = { contains: vendor, mode: "insensitive" };
+    }
+    if (spareQ) where.lines = { some: { itemName: { contains: spareQ, mode: "insensitive" } } };
+    const found = await prisma.stockMovement.findMany({
+      where,
+      orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
+      include: { lines: spareQ ? { where: { itemName: { contains: spareQ, mode: "insensitive" } } } : true },
+    });
+    for (const m of found) {
+      for (const l of m.lines) {
+        rows.push({ when: m.occurredAt.toISOString(), slipNo: m.slipNo, invoiceNo: m.invoiceNo, spare: l.itemName, qty: l.qty, issuedBy: m.issuedBy, issuedTo: m.issuedTo, dept: m.dept, authorisedBy: m.authorisedBy, location: m.location, vendor: m.vendor });
+      }
+    }
+  }
+  return rows.sort((a, b) => b.when.localeCompare(a.when));
+}

@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Panel, EmptyState, Btn, IconBtn, IconEdit, IconDownload, Modal } from "@/components/ui";
+import { Panel, EmptyState, Btn, IconBtn, IconEdit, IconDownload, IconChevronDown, Modal } from "@/components/ui";
 import StockPill from "@/components/inventory/StockPill";
 import ItemForm from "@/components/inventory/ItemForm";
 import ImportDialog from "@/components/inventory/ImportDialog";
 import StockMovementForm from "@/components/inventory/StockMovementForm";
 import MovementsPanel from "@/components/inventory/MovementsPanel";
+import MovementReportModal from "@/components/inventory/MovementReportModal";
 import { can } from "@/lib/roles";
 import { EXPORT_COLUMNS, SOURCE_LABEL, STATUS_LABEL, titleCase } from "@/lib/inventory";
 import { exportToExcel } from "@/lib/exportExcel";
@@ -96,9 +97,12 @@ export default function InventoryPage() {
   const [importing, setImporting] = useState(false);
   const [move, setMove] = useState(null); // { kind: "issue" | "topup", preset } — the open issuance / top-up pop-up
   const [movements, setMovements] = useState([]);
+  const [report, setReport] = useState(null); // "issue" | "topup" — the open Issuance / Top Up report filters
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState("");
   const search = useRef(null);
+  const exportMenuRef = useRef(null);
 
   useEffect(() => {
     fetchItems().then(setItems).catch(() => setLoadError(true));
@@ -118,6 +122,15 @@ export default function InventoryPage() {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, []);
+
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+    function onClickOutside(e) {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target)) setExportMenuOpen(false);
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [exportMenuOpen]);
 
   const canManage = !!me && can(me.role, "invManage");
   const canImport = !!me && can(me.role, "invImport");
@@ -185,6 +198,9 @@ export default function InventoryPage() {
     }),
     [items, categories],
   );
+  // Suggestions for the Top Up report's vendor field — from the movements already
+  // loaded for "Recent movements" (the latest ones), not a full history.
+  const vendors = useMemo(() => [...new Set(movements.filter((m) => m.kind === "TOPUP").map((m) => m.vendor).filter(Boolean))].sort(), [movements]);
 
   const selected = items?.find((i) => i.id === selectedId) || null;
   const filtersActive = q || stock !== "all" || src !== "all" || dept !== "all" || cat !== "all";
@@ -276,7 +292,30 @@ export default function InventoryPage() {
         {canManage && <Btn className="!border-amber-500 !bg-amber-50 !text-amber-900 hover:!bg-amber-100" onClick={() => setMove({ kind: "issue", preset: null })}>Issuance</Btn>}
         {canManage && <Btn className="!border-emerald-600 !bg-emerald-50 !text-emerald-900 hover:!bg-emerald-100" onClick={() => setMove({ kind: "topup", preset: null })}>Top-up</Btn>}
         {canImport && <Btn onClick={() => setImporting(true)}>Import stock</Btn>}
-        <Btn onClick={doExport} disabled={results.length === 0}><IconDownload /> Export to Excel</Btn>
+        <div className="relative inline-flex" ref={exportMenuRef}>
+          <Btn onClick={doExport} disabled={results.length === 0} className="!rounded-r-none !border-r-0"><IconDownload /> Export to Excel</Btn>
+          <button
+            type="button"
+            aria-haspopup="true"
+            aria-expanded={exportMenuOpen}
+            aria-label="More export options"
+            onClick={() => setExportMenuOpen((o) => !o)}
+            className="inline-flex items-center rounded-lg rounded-l-none px-2 py-2 border border-slate-300 bg-white hover:bg-slate-50 text-slate-500"
+          >
+            <IconChevronDown />
+          </button>
+          {exportMenuOpen && (
+            <div className="absolute right-0 top-[calc(100%+4px)] z-20 w-56 rounded-lg border border-slate-200 bg-white shadow-lg py-1 text-sm">
+              <div className="px-3 pt-1.5 pb-1 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Movement reports</div>
+              <button type="button" onClick={() => { setExportMenuOpen(false); setReport("issue"); }} className="w-full flex items-center gap-2 text-left px-3 py-2 hover:bg-amber-50 text-slate-700">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Issuance…
+              </button>
+              <button type="button" onClick={() => { setExportMenuOpen(false); setReport("topup"); }} className="w-full flex items-center gap-2 text-left px-3 py-2 hover:bg-emerald-50 text-slate-700">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" /> Top Up…
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -523,6 +562,8 @@ export default function InventoryPage() {
       {move && <StockMovementForm kind={move.kind} items={items} preset={move.preset} lists={lists} onClose={() => setMove(null)} onSaved={onMoved} />}
 
       {importing && <ImportDialog onClose={() => setImporting(false)} onDone={importDone} />}
+
+      {report && <MovementReportModal kind={report} items={items} vendors={vendors} onClose={() => setReport(null)} />}
 
       {toast && (
         <div role="status" className="fixed left-1/2 -translate-x-1/2 bottom-6 z-[60] max-w-[92vw] rounded-lg bg-slate-900 text-white text-sm px-4 py-2.5 shadow-lg">{toast}</div>
