@@ -62,9 +62,6 @@ export async function DELETE(request, { params }) {
     await deleteUser(id);
     return NextResponse.json({ ok: true });
   } catch (e) {
-    if (e.code === "P2003" || e.code === "P2014") {
-      return NextResponse.json({ error: "Can't remove — this user has raised notifications or been assigned work orders. Deactivate instead." }, { status: 400 });
-    }
     console.error("DELETE /api/users/[id] failed:", e);
     return NextResponse.json({ error: "Could not remove user" }, { status: 500 });
   }

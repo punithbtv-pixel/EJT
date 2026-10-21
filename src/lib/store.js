@@ -149,7 +149,18 @@ export async function deleteUser(id) {
     db.users.splice(idx, 1);
     return;
   }
-  await prisma.user.delete({ where: { id: Number(id) } });
+  // Copy the name onto the user's notifications and work orders first, so
+  // they still say who raised / was assigned them once the link is nulled.
+  const userId = Number(id);
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new Error("Not found");
+  await prisma.$transaction([
+    prisma.notification.updateMany({ where: { raisedById: userId, raisedByName: null }, data: { raisedByName: user.name } }),
+    prisma.notification.updateMany({ where: { raisedById: userId }, data: { raisedById: null } }),
+    prisma.workOrder.updateMany({ where: { assignedToId: userId, assignedToName: null }, data: { assignedToName: user.name } }),
+    prisma.workOrder.updateMany({ where: { assignedToId: userId }, data: { assignedToId: null } }),
+    prisma.user.delete({ where: { id: userId } }),
+  ]);
 }
 
 // ── Notifications ───────────────────────────────────────────────────────
@@ -213,7 +224,7 @@ export async function createNotification({ dept, location, job, description, nat
     const count = await tx.notification.count();
     no = `NT-2026-${String(413 + count).padStart(5, "0")}`;
     return tx.notification.create({
-      data: { no, date: new Date(date), time, dept, location, job, description, nature, priority, status: "Raised", raisedById: raisedByUser.id, history },
+      data: { no, date: new Date(date), time, dept, location, job, description, nature, priority, status: "Raised", raisedById: raisedByUser.id, raisedByName: raisedByUser.name, history },
     });
   });
   return normNotif(row, null);
@@ -364,7 +375,7 @@ export async function createWorkOrder({ notificationNo, dept, location, job, des
     prisma.workOrder.create({
       data: {
         no, notificationId: src.id, dept, location, job, description, nature, priority,
-        assignedToId: assignedUser?.id, plannedStart: new Date(plannedStart.replace(" ", "T")), plannedEnd: new Date(plannedEnd.replace(" ", "T")),
+        assignedToId: assignedUser?.id, assignedToName: assignedToName || null, plannedStart: new Date(plannedStart.replace(" ", "T")), plannedEnd: new Date(plannedEnd.replace(" ", "T")),
         remarks: remarks || "", status, createdById: createdByUser.id, history,
       },
     }),
@@ -409,7 +420,7 @@ export async function assignWorkOrder(no, assignedToName, who) {
   if (!before) throw new Error("Not found");
   const assignedUser = await prisma.user.findFirst({ where: { name: assignedToName } });
   const { updated } = await finishPrisma(no, {
-    assignedToId: assignedUser?.id ?? null,
+    assignedToId: assignedUser?.id ?? null, assignedToName,
     status: before.status === "Pending" ? "Assigned" : before.status,
     history: withHistory(before.history, who, text),
   });
@@ -549,6 +560,7 @@ export async function updateWorkOrder(no, patch, who) {
   if (assignChanged) {
     const u = assignedToName ? await prisma.user.findFirst({ where: { name: assignedToName } }) : null;
     assign.assignedToId = u?.id ?? null;
+    assign.assignedToName = assignedToName;
   }
   const { updated } = await finishPrisma(no, { ...data, ...prismaDates, ...assign, history: withHistory(before.history, who, text) });
   return { ...updated, assignedToName };
@@ -578,6 +590,7 @@ export async function editWorkOrder(no, patch, who) {
   if (patch.assignedToName !== undefined) {
     const assignedUser = patch.assignedToName ? await prisma.user.findFirst({ where: { name: patch.assignedToName } }) : null;
     data.assignedToId = assignedUser?.id ?? null;
+    data.assignedToName = patch.assignedToName || null;
   }
   const { updated } = await finishPrisma(no, data);
   return patch.assignedToName !== undefined ? { ...updated, assignedToName: patch.assignedToName || null } : updated;

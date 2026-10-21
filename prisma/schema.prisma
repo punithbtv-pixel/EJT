@@ -59,8 +59,10 @@ model Notification {
   attachments Json     @default("[]")
   history     Json     @default("[]") // [{ at, who, text }]
 
-  raisedById Int
-  raisedBy   User @relation("RaisedBy", fields: [raisedById], references: [id])
+  // Nulled when the user is deleted; raisedByName keeps who raised it.
+  raisedById   Int?
+  raisedBy     User?   @relation("RaisedBy", fields: [raisedById], references: [id], onDelete: SetNull)
+  raisedByName String?
 
   workOrder WorkOrder?
 
@@ -98,8 +100,10 @@ model WorkOrder {
   notificationId Int          @unique
   notification   Notification @relation(fields: [notificationId], references: [id])
 
-  assignedToId Int?
-  assignedTo   User? @relation("AssignedTo", fields: [assignedToId], references: [id])
+  // Nulled when the user is deleted; assignedToName keeps who it was assigned to.
+  assignedToId   Int?
+  assignedTo     User?   @relation("AssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  assignedToName String?
 
   createdById Int
   createdAt   DateTime @default(now())
